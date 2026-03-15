@@ -12,7 +12,7 @@ KNOWN_UNITS = [
     "tablespoon", "teaspoon", "tbsp", "tsp",
     "litre", "liter", "ml", "kg", "lb", "oz",
     "clove", "bunch", "pinch", "spray",
-    "medium", "large", "small",
+    "medium", "large", "small", "whole",
     "piece", "slice",
     "cup", "pot", "tin", "can",
     "g", "l",
@@ -22,10 +22,18 @@ KNOWN_UNITS = [
 SEARCH_STRIP_PHRASES = [
     "to taste", "for serving", "for garnish", "optional",
     "approximately", "about",
+    "good quality", "finely chopped", "roughly chopped",
 ]
 
 # Words to strip from search queries individually
-SEARCH_STRIP_WORDS = {"fresh", "dried"}
+SEARCH_STRIP_WORDS = {
+    "fresh", "dried", "raw", "plain",
+    "chopped", "diced", "sliced", "minced", "crushed", "grated",
+    "peeled", "deseeded", "trimmed", "boneless", "skinless",
+}
+
+# Words to strip only if removing them leaves at least one other word
+_CONDITIONAL_STRIP_WORDS = {"whole", "finely", "roughly"}
 
 # Container words to remove from search queries
 CONTAINER_WORDS = {"pot", "tin", "can", "jar", "bag", "pack", "packet", "spray",
@@ -116,6 +124,11 @@ def _build_search_query(name: str) -> str:
     words = query.split()
     words = [re.sub(r"[^a-z]", "", w) for w in words]  # strip commas, etc.
     words = [w for w in words if w and w not in SEARCH_STRIP_WORDS and w not in CONTAINER_WORDS]
+
+    # Conditionally strip words like "whole" only if other words remain
+    remaining = [w for w in words if w not in _CONDITIONAL_STRIP_WORDS]
+    if remaining:
+        words = remaining
 
     query = " ".join(words).strip()
 

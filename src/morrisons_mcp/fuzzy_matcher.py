@@ -37,6 +37,26 @@ _SINGLE_CONTAINER_UNITS = frozenset({
     "tin", "can", "jar", "bottle", "pot", "bag", "box", "tub", "pack",
 })
 
+# Keywords that suggest processed/prepared products (checked in category AND name)
+_PROCESSED_KEYWORDS = frozenset({
+    "soup", "sauce", "ready meal", "meal kit", "cooking sauce",
+    "crisp", "snack", "biscuit", "cracker", "cereal",
+    "drink", "juice", "smoothie", "dessert", "cake",
+    "mix", "paste", "powder", "stock", "seasoning",
+})
+
+# Synonyms for fresh produce — used when best match confidence is low
+FRESH_PRODUCE_SYNONYMS: dict[str, list[str]] = {
+    "pumpkin": ["butternut squash", "squash"],
+    "capsicum": ["bell pepper", "pepper"],
+    "aubergine": ["eggplant"],
+    "courgette": ["zucchini"],
+    "coriander": ["cilantro"],
+    "spring onion": ["salad onion"],
+    "rocket": ["arugula"],
+    "swede": ["rutabaga"],
+}
+
 
 def _stem(word: str) -> str:
     """Strip common plural/verb suffixes for fuzzy word matching."""
@@ -103,7 +123,9 @@ def find_best_match(
             continue
 
         # Base name score (0–100)
-        name_score = fuzz.token_sort_ratio(query, product.name.lower())
+        name_lower = product.name.lower()
+        query_lower = query.lower()
+        name_score = fuzz.token_sort_ratio(query, name_lower)
         composite = float(name_score)
 
         # Category bonus: +10 if a query word appears as a whole word in the category path
@@ -115,9 +137,16 @@ def find_best_match(
             ):
                 composite += 10
 
+        # Processed product penalty: -25 if product name or category contains
+        # processed keywords (soup, mix, sauce, etc.) but the query doesn't
+        query_words_set = set(_significant_words(query))
+        check_text = name_lower + " " + (product.category_path or "").lower()
+        for kw in _PROCESSED_KEYWORDS:
+            if kw in check_text and kw not in query_words_set:
+                composite -= 25
+                break
+
         # Premium penalty: -15 if product has premium words not in query
-        query_lower = query.lower()
-        name_lower = product.name.lower()
         for pw in _PREMIUM_WORDS:
             if pw in name_lower and pw not in query_lower:
                 composite -= 15

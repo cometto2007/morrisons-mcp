@@ -234,3 +234,42 @@ def test_single_tin_prefers_single_not_multipack():
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
     assert match.retailer_product_id == "2"
+
+
+def test_pumpkin_soup_mix_penalised():
+    """Processed product 'Pumpkin Soup Mix' should get a low confidence
+    due to the processed keyword penalty ('soup', 'mix')."""
+    ingredient = ParsedIngredient(
+        original="600g pumpkin", quantity=600, unit="g",
+        name="pumpkin", search_query="pumpkin",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Grace Pumpkin Soup Mix", price=0.75,
+            pack_size="50g", available=True,
+            category_path="World Foods > African & Caribbean Food Shop",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    # Should either not match or have low confidence due to processed penalty
+    if match is not None:
+        assert confidence < 0.5  # Low enough to trigger synonym fallback
+
+
+def test_processed_product_penalty():
+    """Products with processed keywords in name/category should be penalised."""
+    ingredient = _make_ingredient("chicken")
+    products = [
+        _make_product(
+            "Chicken Soup", product_id="1", price=1.50,
+            category="Soup > Tinned Soup",
+        ),
+        _make_product(
+            "Chicken Breast", product_id="2", price=4.00,
+            category="Meat & Poultry > Chicken",
+        ),
+    ]
+    match, _ = find_best_match(ingredient, products)
+    assert match is not None
+    assert match.product_id == "2"

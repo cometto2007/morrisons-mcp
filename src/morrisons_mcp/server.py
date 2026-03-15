@@ -8,8 +8,9 @@ from fastmcp import FastMCP, Context
 from .cache import ProductCache
 from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
-from .fuzzy_matcher import find_best_match
+from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS
 from .nutrition_fallback import get_fallback_nutrition
+from .weight_estimator import estimate_weight_grams
 from .models import (
     ProductResult,
     ProductDetail,
@@ -48,6 +49,37 @@ mcp = FastMCP(
     "Morrisons Grocery MCP",
     lifespan=app_lifespan,
 )
+
+
+async def _match_with_synonym_fallback(
+    parsed: ParsedIngredient,
+    morrison: MorrisonClient,
+) -> tuple[ProductResult | None, float]:
+    """
+    Try to match a parsed ingredient to a product. If the best match
+    confidence is below 0.5 and a fresh produce synonym exists, search
+    again with the synonym and use the better result.
+    """
+    products = await morrison.search(parsed.search_query, max_results=20)
+    match, confidence = find_best_match(parsed, products)
+
+    if confidence < 0.5:
+        synonyms = FRESH_PRODUCE_SYNONYMS.get(parsed.search_query.lower(), [])
+        for synonym in synonyms:
+            syn_parsed = ParsedIngredient(
+                original=parsed.original,
+                quantity=parsed.quantity,
+                unit=parsed.unit,
+                name=synonym,
+                search_query=synonym,
+            )
+            syn_products = await morrison.search(synonym, max_results=20)
+            syn_match, syn_confidence = find_best_match(syn_parsed, syn_products)
+            if syn_confidence > confidence:
+                match, confidence = syn_match, syn_confidence
+                break
+
+    return match, confidence
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +156,7 @@ async def cost_recipe(
     for ing_str in ingredients:
         parsed = parse_ingredient(ing_str)
         try:
-            products = await morrison.search(parsed.search_query, max_results=20)
-            match, confidence = find_best_match(parsed, products)
+            match, confidence = await _match_with_synonym_fallback(parsed, morrison)
         except Exception as e:
             logger.error(f"Error searching for '{parsed.search_query}': {e}")
             match, confidence = None, 0.0
@@ -190,8 +221,7 @@ async def get_recipe_nutrition(
         ing_nutrition = IngredientNutrition(ingredient=ing_str)
 
         try:
-            products = await morrison.search(parsed.search_query, max_results=20)
-            match, confidence = find_best_match(parsed, products)
+            match, confidence = await _match_with_synonym_fallback(parsed, morrison)
         except Exception as e:
             logger.error(f"Error matching '{parsed.search_query}': {e}")
             results.append(ing_nutrition)
@@ -224,14 +254,7 @@ async def get_recipe_nutrition(
             ing_nutrition.nutrition_per_100g = nutrition
             ing_nutrition.nutrition_source = nutrition_source if nutrition else None
 
-            weight_g: float | None = None
-            if parsed.unit == "kg":
-                weight_g = (parsed.quantity or 0) * 1000
-            elif parsed.unit in ("g", "ml"):
-                weight_g = parsed.quantity
-            elif parsed.unit is None and parsed.quantity is not None:
-                weight_g = parsed.quantity
-
+            weight_g = estimate_weight_grams(parsed)
             ing_nutrition.estimated_weight_g = weight_g
 
             if weight_g is not None and nutrition:

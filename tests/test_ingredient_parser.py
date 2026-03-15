@@ -135,3 +135,37 @@ def test_mealie_pot_format():
 def test_mealie_spray_format():
     result = parse_ingredient("3 spray 0.2ml, Sunflower Oil Spray")
     assert "sunflower oil" in result.search_query.lower()
+
+
+def test_whole_eggs_strips_whole():
+    result = parse_ingredient("6 whole eggs")
+    assert result.quantity == 6
+    assert result.unit == "whole"
+    assert "eggs" in result.search_query.lower()
+    assert "whole" not in result.search_query.lower()
+
+
+def test_whole_chicken_keeps_whole():
+    """'whole chicken' — 'whole' is the unit, 'chicken' is the name."""
+    result = parse_ingredient("1 whole chicken")
+    assert "chicken" in result.search_query.lower()
+
+
+def test_chopped_stripped_from_search():
+    result = parse_ingredient("200g chopped tomatoes")
+    # "chopped" is a prep word but "chopped tomatoes" is a product name
+    # The word "chopped" gets stripped, leaving "tomatoes"
+    assert "tomatoes" in result.search_query.lower()
+
+
+def test_finely_chopped_phrase_stripped():
+    result = parse_ingredient("1 finely chopped onion")
+    assert "onion" in result.search_query.lower()
+    assert "finely" not in result.search_query.lower()
+
+
+def test_boneless_skinless_stripped():
+    result = parse_ingredient("500g boneless skinless chicken thighs")
+    assert "chicken" in result.search_query.lower()
+    assert "boneless" not in result.search_query.lower()
+    assert "skinless" not in result.search_query.lower()
