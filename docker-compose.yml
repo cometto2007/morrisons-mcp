@@ -4,9 +4,10 @@ services:
     container_name: morrisons-mcp
     restart: unless-stopped
     environment:
-      - CACHE_DB_PATH=/data/cache.db
-      - MEALIE_URL=${MEALIE_URL:-}
-      - MEALIE_API_KEY=${MEALIE_API_KEY:-}
+      CACHE_DB_PATH: /data/cache.db
+      MEALIE_URL: ${MEALIE_URL}
+      MEALIE_API_KEY: ${MEALIE_API_KEY}
+      USDA_FDC_API_KEY: ${USDA_FDC_API_KEY:-DEMO_KEY}
     volumes:
       - morrisons_data:/data
     networks:
