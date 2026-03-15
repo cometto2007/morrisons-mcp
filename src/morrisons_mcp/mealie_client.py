@@ -46,39 +46,60 @@ class MealieClient:
             if cached is not None:
                 return cached
 
-        try:
-            client = await self._ensure_client()
-            resp = await client.get(
-                "/api/foods",
-                params={"search": ingredient_name, "perPage": 10},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            logger.warning(f"Mealie food lookup failed for '{ingredient_name}': {e}")
-            return False
-
-        items = data.get("items", [])
-        result = False
-
-        for item in items:
-            food_name = (item.get("name") or "").lower()
-            aliases = [a.get("name", "").lower() for a in item.get("aliases", [])]
-            all_names = [food_name] + aliases
-
-            # Check if any name/alias matches the ingredient
-            if any(name_lower in n or n in name_lower for n in all_names if n):
-                households = item.get("householdsWithIngredientFood", [])
-                if households:
-                    result = True
-                    break
+        result = await self._check_mealie_food(name_lower)
 
         # Cache for 1 hour
         if self._cache:
             await self._cache.set(cache_key, result, ttl=3600)
 
-        logger.debug(f"Mealie pantry check '{ingredient_name}': {'on_hand' if result else 'not found'}")
+        logger.info(
+            f"Mealie pantry check '{ingredient_name}': "
+            f"{'on_hand' if result else 'not on_hand'}"
+        )
         return result
+
+    async def _check_mealie_food(self, name_lower: str) -> bool:
+        """Query Mealie foods API and check if any match is a household staple."""
+        try:
+            client = await self._ensure_client()
+            resp = await client.get(
+                "/api/foods",
+                params={"search": name_lower, "perPage": 20},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning(f"Mealie food lookup failed for '{name_lower}': {e}")
+            return False
+
+        items = data.get("items", [])
+        logger.debug(f"Mealie search '{name_lower}' returned {len(items)} foods")
+
+        for item in items:
+            food_name = (item.get("name") or "").lower()
+            aliases = [
+                (a.get("name") or "").lower()
+                for a in (item.get("aliases") or [])
+            ]
+            all_names = [food_name] + aliases
+            households = item.get("householdsWithIngredientFood") or []
+
+            # Match: exact, substring in either direction, or single-word match
+            matched = any(
+                name_lower == n
+                or name_lower in n
+                or n in name_lower
+                for n in all_names if n
+            )
+
+            if matched and households:
+                logger.debug(
+                    f"  Matched food '{item.get('name')}' "
+                    f"households={households}"
+                )
+                return True
+
+        return False
 
     async def close(self) -> None:
         if self._client:

@@ -162,8 +162,10 @@ async def cost_recipe(
     for ing_str in ingredients:
         parsed = parse_ingredient(ing_str)
 
-        # Check if it's a pantry staple via Mealie
+        # Check if it's a pantry staple via Mealie (try name, then search_query)
         on_hand = await mealie.is_pantry_staple(parsed.name)
+        if not on_hand and parsed.search_query != parsed.name.lower():
+            on_hand = await mealie.is_pantry_staple(parsed.search_query)
         if on_hand:
             results.append(IngredientCost(
                 ingredient=ing_str,
@@ -243,6 +245,8 @@ async def get_recipe_nutrition(
     for ing_str in ingredients:
         parsed = parse_ingredient(ing_str)
         on_hand = await mealie.is_pantry_staple(parsed.name)
+        if not on_hand and parsed.search_query != parsed.name.lower():
+            on_hand = await mealie.is_pantry_staple(parsed.search_query)
         ing_nutrition = IngredientNutrition(ingredient=ing_str, on_hand=on_hand)
 
         try:

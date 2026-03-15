@@ -128,18 +128,29 @@ def find_best_match(
         name_score = fuzz.token_sort_ratio(query, name_lower)
         composite = float(name_score)
 
+        # Single-word exact match boost: +30 if the query is a single word
+        # and it appears (stemmed) in the product name. This helps staple
+        # ingredients like "eggs", "milk", "butter" which get very low
+        # token_sort_ratio scores against long product names.
+        query_words = _significant_words(query)
+        if len(query_words) == 1:
+            query_stem = _stem(query_words[0])
+            product_stems = {_stem(w) for w in _significant_words(product.name)}
+            if query_stem in product_stems:
+                composite += 30
+
         # Category bonus: +10 if a query word appears as a whole word in the category path
         if product.category_path:
             cat_lower = product.category_path.lower()
             if any(
                 re.search(r"\b" + re.escape(w) + r"\b", cat_lower)
-                for w in _significant_words(query)
+                for w in query_words
             ):
                 composite += 10
 
         # Processed product penalty: -25 if product name or category contains
         # processed keywords (soup, mix, sauce, etc.) but the query doesn't
-        query_words_set = set(_significant_words(query))
+        query_words_set = set(query_words)
         check_text = name_lower + " " + (product.category_path or "").lower()
         for kw in _PROCESSED_KEYWORDS:
             if kw in check_text and kw not in query_words_set:

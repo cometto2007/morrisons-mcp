@@ -273,3 +273,53 @@ def test_processed_product_penalty():
     match, _ = find_best_match(ingredient, products)
     assert match is not None
     assert match.product_id == "2"
+
+
+def test_eggs_single_word_matches():
+    """Single-word query 'eggs' should match a product with 'Eggs' in name."""
+    ingredient = ParsedIngredient(
+        original="6 eggs", quantity=6, unit=None,
+        name="eggs", search_query="eggs",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Morrisons Large Free Range Eggs 6 Pack",
+            price=1.75, available=True,
+            category_path="Eggs > Free Range Eggs",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4
+    assert "Eggs" in match.name
+
+
+def test_milk_single_word_matches():
+    """Single-word query 'milk' should match milk products."""
+    ingredient = _make_ingredient("milk")
+    products = [
+        _make_product(
+            "Morrisons British Semi Skimmed Milk 2L",
+            product_id="1", price=1.45,
+            category="Milk, Butter & Cream > Fresh Milk",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4
+
+
+def test_butter_single_word_matches():
+    """Single-word query 'butter' should match butter products."""
+    ingredient = _make_ingredient("butter")
+    products = [
+        _make_product(
+            "Morrisons British Butter 250g",
+            product_id="1", price=1.85,
+            category="Milk, Butter & Cream > Butter",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4
