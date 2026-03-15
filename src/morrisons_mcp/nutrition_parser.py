@@ -49,13 +49,25 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
             value_text = cells[1].get_text(strip=True)
 
             if "energy" in label:
-                # May be "1234kJ / 295kcal" or just one value
+                # Try to extract kJ and kcal from the value text
+                # Handles: "1456kJ / 348kcal", "1456 kJ", "348kcal"
                 kj_match = re.search(r"([\d.]+)\s*kj", value_text, re.IGNORECASE)
                 kcal_match = re.search(r"([\d.]+)\s*kcal", value_text, re.IGNORECASE)
                 if kj_match:
                     result["energy_kj"] = float(kj_match.group(1))
                 if kcal_match:
                     result["energy_kcal"] = float(kcal_match.group(1))
+
+                # Handle unit in the label instead of the value:
+                # e.g. <td>Energy kJ</td><td>1456</td>
+                #      <td>Energy kcal</td><td>348</td>
+                if not kj_match and not kcal_match:
+                    plain_val = _extract_float(value_text)
+                    if plain_val is not None:
+                        if "kj" in label:
+                            result["energy_kj"] = plain_val
+                        elif "kcal" in label:
+                            result["energy_kcal"] = plain_val
 
             elif label == "fat" or label.startswith("fat "):
                 result["fat_g"] = _extract_float(value_text)

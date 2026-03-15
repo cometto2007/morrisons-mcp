@@ -38,6 +38,15 @@ _SINGLE_CONTAINER_UNITS = frozenset({
 })
 
 
+def _stem(word: str) -> str:
+    """Very basic stemming — strip common English suffixes for matching."""
+    w = word.lower()
+    for suffix in ("ies", "es", "s", "ing"):
+        if w.endswith(suffix) and len(w) > len(suffix) + 2:
+            return w[:-len(suffix)]
+    return w
+
+
 def _significant_words(text: str) -> list[str]:
     """Extract lowercase significant words from text."""
     words = re.findall(r"[a-z]+", text.lower())
@@ -47,21 +56,19 @@ def _significant_words(text: str) -> list[str]:
 def _all_query_words_present(query: str, product_name: str) -> bool:
     """
     For multi-word queries, require ALL significant query words to appear
-    in the product name as whole words (word-boundary match).
+    in the product name (with basic stemming for plural tolerance).
 
-    E.g. 'chicken breast' requires both 'chicken' AND 'breast' as whole words.
-    'pea' will not match 'peas' since 'pea' is not a whole word in 'peas'
-    (single-word queries still skip this check to allow free matching).
+    E.g. 'chicken breast fillet' matches 'Chicken Breast Fillets' because
+    _stem('fillet') == _stem('fillets') == 'fillet'.
+
+    Single-word queries skip this check to allow free matching.
     """
     query_words = _significant_words(query)
     if len(query_words) <= 1:
         return True
 
-    product_lower = product_name.lower()
-    return all(
-        bool(re.search(r"\b" + re.escape(word) + r"\b", product_lower))
-        for word in query_words
-    )
+    product_stems = {_stem(w) for w in _significant_words(product_name)}
+    return all(_stem(word) in product_stems for word in query_words)
 
 
 def find_best_match(

@@ -109,3 +109,25 @@ def test_energy_with_spaces():
     result = parse_nutrition_html(html)
     assert result.energy_kj == 1046.0
     assert result.energy_kcal == 250.0
+
+
+def test_energy_unit_in_label_kj():
+    """When kJ is in the label and the value is just a number."""
+    html = """<table>
+    <tr><td>Energy kJ</td><td>1456</td></tr>
+    <tr><td>Energy kcal</td><td>348</td></tr>
+    </table>"""
+    result = parse_nutrition_html(html)
+    assert result is not None
+    assert result.energy_kj == 1456.0
+    assert result.energy_kcal == 348.0
+
+
+def test_energy_unit_in_label_kj_only():
+    """When only kJ label row exists, kcal should be derived."""
+    html = """<table><tr><td>Energy kJ</td><td>1456</td></tr></table>"""
+    result = parse_nutrition_html(html)
+    assert result is not None
+    assert result.energy_kj == 1456.0
+    assert result.energy_kcal is not None
+    assert abs(result.energy_kcal - 348.0) < 2

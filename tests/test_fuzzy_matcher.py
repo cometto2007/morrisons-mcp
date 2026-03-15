@@ -126,9 +126,9 @@ def test_all_unavailable_returns_none():
     assert confidence <= 1.0
 
 
-def test_word_boundary_prevents_substring_match():
-    """'pea' should not match 'peas' as a required whole-word presence."""
-    assert not _all_query_words_present("pea soup", "Morrisons Peas Soup")
+def test_stemming_allows_plural_match():
+    """'pea' should match 'peas' via stemming, and 'pea' matches 'pea' directly."""
+    assert _all_query_words_present("pea soup", "Morrisons Peas Soup")
     assert _all_query_words_present("pea soup", "Morrisons Pea & Ham Soup")
 
 
@@ -156,6 +156,31 @@ def test_all_products_fail_word_filter_returns_none():
     match, confidence = find_best_match(ingredient, products)
     assert match is None
     assert confidence == 0.0
+
+
+def test_plural_tolerance_fillet_fillets():
+    """'chicken breast fillet' should match 'Chicken Breast Fillets'."""
+    ingredient = _make_ingredient("chicken breast fillet")
+    products = [
+        _make_product(
+            "Morrisons British Chicken Breast Fillets 1kg",
+            product_id="1",
+            price=6.84,
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert match.product_id == "1"
+
+
+def test_plural_tolerance_tomato_tomatoes():
+    """'chopped tomato' should match 'Chopped Tomatoes'."""
+    ingredient = _make_ingredient("chopped tomato")
+    products = [
+        _make_product("Morrisons Chopped Tomatoes 400g", product_id="1"),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
 
 
 def test_prefers_standard_over_organic():
