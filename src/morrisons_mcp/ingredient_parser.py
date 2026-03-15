@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 KNOWN_UNITS = [
     "tablespoon", "teaspoon", "tbsp", "tsp",
     "litre", "liter", "ml", "kg", "lb", "oz",
-    "clove", "bunch", "pinch", "spray",
+    "clove", "bunch", "pinch", "spray", "dash",
     "medium", "large", "small", "whole",
     "piece", "slice",
     "cup", "pot", "tin", "can",

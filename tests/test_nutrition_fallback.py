@@ -186,3 +186,43 @@ async def test_fallback_returns_none_when_both_fail():
 
     assert result is None
     assert source is None
+
+
+@pytest.mark.asyncio
+async def test_usda_rejects_egg_whites():
+    """USDA result for 'eggs' with low kcal/fat should be rejected (egg whites)."""
+    # Egg whites: ~52 kcal, ~0.2g fat — should fail sanity check
+    egg_white_resp = _make_mock_response({
+        "foods": [
+            {
+                "dataType": "Foundation",
+                "description": "Egg, white, raw, fresh",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 52, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 10.9, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 0.2, "unitName": "G"},
+                    {"nutrientName": "Carbohydrate, by difference", "value": 0.7, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 166, "unitName": "MG"},
+                ],
+            },
+            {
+                "dataType": "Foundation",
+                "description": "Egg, whole, raw, fresh",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 143, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 12.6, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 9.5, "unitName": "G"},
+                    {"nutrientName": "Carbohydrate, by difference", "value": 0.7, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 142, "unitName": "MG"},
+                ],
+            },
+        ]
+    })
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.post.return_value = egg_white_resp
+
+    result = await _search_usda_fdc("eggs", client)
+    assert result is not None
+    # Should pick the whole egg (143 kcal), not the white (52 kcal)
+    assert result.energy_kcal >= 100
+    assert result.fat_g >= 5

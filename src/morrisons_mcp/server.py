@@ -9,7 +9,7 @@ from .cache import ProductCache
 from .mealie_client import MealieClient
 from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
-from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS
+from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
 from .nutrition_fallback import get_fallback_nutrition
 from .weight_estimator import estimate_weight_grams
 from .models import (
@@ -67,7 +67,18 @@ async def _match_with_synonym_fallback(
     products = await morrison.search(parsed.search_query, max_results=20)
     match, confidence = find_best_match(parsed, products)
 
-    if confidence < 0.5:
+    # Try synonym fallback if:
+    # 1. Confidence is low (<0.5), OR
+    # 2. Best match's category doesn't look like fresh produce
+    #    (e.g. "pumpkin" matched "Pumpkin Seeds" in Nuts/Seeds category)
+    should_try_synonym = confidence < 0.5
+    if not should_try_synonym and match and match.category_path:
+        cat_lower = match.category_path.lower()
+        has_fresh_category = any(kw in cat_lower for kw in _FRESH_CATEGORY_KEYWORDS)
+        if not has_fresh_category:
+            should_try_synonym = True
+
+    if should_try_synonym:
         synonyms = FRESH_PRODUCE_SYNONYMS.get(parsed.search_query.lower(), [])
         for synonym in synonyms:
             syn_parsed = ParsedIngredient(
@@ -79,7 +90,7 @@ async def _match_with_synonym_fallback(
             )
             syn_products = await morrison.search(synonym, max_results=20)
             syn_match, syn_confidence = find_best_match(syn_parsed, syn_products)
-            if syn_confidence > confidence:
+            if syn_confidence > 0.4:
                 match, confidence = syn_match, syn_confidence
                 break
 

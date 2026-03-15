@@ -19,6 +19,7 @@ UNIT_TO_GRAMS: dict[str, float] = {
     "can": 400,
     "bunch": 30,
     "pinch": 0.5,
+    "dash": 0.5,
     "spray": 0.5,
     "slice": 30,
     "piece": 50,

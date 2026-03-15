@@ -310,6 +310,26 @@ def test_milk_single_word_matches():
     assert confidence >= 0.4
 
 
+def test_pumpkin_seeds_penalised():
+    """Pumpkin Seeds in Nuts/Seeds category should be penalised for 'pumpkin' query."""
+    ingredient = ParsedIngredient(
+        original="600g pumpkin", quantity=600, unit="g",
+        name="pumpkin", search_query="pumpkin",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Morrisons Pumpkin Seeds 200g", price=1.50,
+            available=True,
+            category_path="Fruit, Veg & Flowers > Nuts, Seeds & Dried Fruit",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    # Should have low confidence due to "seeds" penalty
+    if match is not None:
+        assert confidence < 0.5
+
+
 def test_butter_single_word_matches():
     """Single-word query 'butter' should match butter products."""
     ingredient = _make_ingredient("butter")

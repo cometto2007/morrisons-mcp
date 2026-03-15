@@ -169,3 +169,11 @@ def test_boneless_skinless_stripped():
     assert "chicken" in result.search_query.lower()
     assert "boneless" not in result.search_query.lower()
     assert "skinless" not in result.search_query.lower()
+
+
+def test_dash_salt_parses_correctly():
+    result = parse_ingredient("1 dash salt")
+    assert result.quantity == 1
+    assert result.unit == "dash"
+    assert result.name == "salt"
+    assert result.search_query == "salt"

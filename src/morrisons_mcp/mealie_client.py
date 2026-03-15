@@ -34,6 +34,8 @@ class MealieClient:
         Check if an ingredient is marked as a household staple in Mealie.
         Returns True if the food's householdsWithIngredientFood is non-empty.
         """
+        logger.info(f"Checking pantry staple: '{ingredient_name}' (enabled={self._enabled})")
+
         if not self._enabled:
             return False
 
@@ -73,7 +75,7 @@ class MealieClient:
             return False
 
         items = data.get("items", [])
-        logger.debug(f"Mealie search '{name_lower}' returned {len(items)} foods")
+        logger.info(f"Mealie search '{name_lower}' returned {len(items)} foods")
 
         for item in items:
             food_name = (item.get("name") or "").lower()

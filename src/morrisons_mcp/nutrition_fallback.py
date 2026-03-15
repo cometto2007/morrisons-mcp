@@ -17,6 +17,28 @@ _USER_AGENT = "MorrisonsMCP/1.0 (chris@chrislab.it)"
 # Cache TTL for fallback nutrition data: 7 days
 _FALLBACK_TTL = 604_800
 
+# USDA search overrides for ambiguous single-word ingredients
+_USDA_SEARCH_OVERRIDES: dict[str, str] = {
+    "eggs": "egg whole raw fresh",
+    "egg": "egg whole raw fresh",
+    "milk": "milk whole",
+    "cream": "cream heavy",
+    "butter": "butter salted",
+    "flour": "flour wheat all purpose",
+    "sugar": "sugar white granulated",
+    "rice": "rice white cooked",
+    "chicken": "chicken breast raw",
+    "beef": "beef ground raw",
+}
+
+# Sanity check thresholds — reject USDA results that are clearly wrong
+_USDA_SANITY_CHECKS: dict[str, dict] = {
+    "egg": {"min_kcal": 80, "min_fat": 3},
+    "eggs": {"min_kcal": 80, "min_fat": 3},
+    "butter": {"min_kcal": 500, "min_fat": 50},
+    "milk": {"min_kcal": 30, "min_fat": 1},
+}
+
 
 async def _search_open_food_facts(
     query: str, client: httpx.AsyncClient,
@@ -74,56 +96,81 @@ async def _search_usda_fdc(
     query: str, client: httpx.AsyncClient,
 ) -> NutritionPer100g | None:
     """Search USDA FoodData Central for nutrition data per 100g."""
+    # Use override query for ambiguous single-word ingredients
+    search_query = _USDA_SEARCH_OVERRIDES.get(query.lower().strip(), query)
+    sanity = _USDA_SANITY_CHECKS.get(query.lower().strip())
+
     api_key = os.getenv("USDA_FDC_API_KEY", "DEMO_KEY")
     try:
         resp = await client.post(
             _USDA_SEARCH_URL,
             params={"api_key": api_key},
             json={
-                "query": query,
+                "query": search_query,
                 "dataType": ["Foundation", "SR Legacy"],
-                "pageSize": 5,
+                "pageSize": 10,
             },
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        logger.warning(f"USDA FDC search failed for '{query}': {e}")
+        logger.warning(f"USDA FDC search failed for '{search_query}': {e}")
         return None
 
     foods = data.get("foods", [])
     if not foods:
         return None
 
-    # Prefer Foundation over SR Legacy
-    food = next((f for f in foods if f.get("dataType") == "Foundation"), foods[0])
-    nutrients = {n["nutrientName"]: n for n in food.get("foodNutrients", [])}
+    # Sort: Foundation first, then SR Legacy
+    foods.sort(key=lambda f: 0 if f.get("dataType") == "Foundation" else 1)
 
-    energy_kcal = _usda_nutrient(nutrients, "Energy", "KCAL")
-    energy_kj = _usda_nutrient(nutrients, "Energy", "kJ")
-    if energy_kcal is None and energy_kj is not None:
-        energy_kcal = round(energy_kj / 4.184, 1)
+    for food in foods:
+        nutrients = {n["nutrientName"]: n for n in food.get("foodNutrients", [])}
 
-    protein = _usda_nutrient(nutrients, "Protein", "G")
-    if energy_kcal is None or protein is None:
-        return None
+        energy_kcal = _usda_nutrient(nutrients, "Energy", "KCAL")
+        energy_kj = _usda_nutrient(nutrients, "Energy", "kJ")
+        if energy_kcal is None and energy_kj is not None:
+            energy_kcal = round(energy_kj / 4.184, 1)
 
-    # Sodium in mg → salt in g (salt = sodium × 2.5 / 1000)
-    sodium_mg = _usda_nutrient(nutrients, "Sodium, Na", "MG")
-    salt_g = round(sodium_mg * 2.5 / 1000, 2) if sodium_mg is not None else None
+        protein = _usda_nutrient(nutrients, "Protein", "G")
+        if energy_kcal is None or protein is None:
+            continue
 
-    return NutritionPer100g(
-        energy_kcal=energy_kcal,
-        energy_kj=energy_kj,
-        fat_g=_usda_nutrient(nutrients, "Total lipid (fat)", "G"),
-        saturates_g=_usda_nutrient(nutrients, "Fatty acids, total saturated", "G"),
-        carbohydrate_g=_usda_nutrient(nutrients, "Carbohydrate, by difference", "G"),
-        sugars_g=_usda_nutrient(nutrients, "Sugars, total including NLEA", "G"),
-        fibre_g=_usda_nutrient(nutrients, "Fiber, total dietary", "G"),
-        protein_g=protein,
-        salt_g=salt_g,
-    )
+        fat_g = _usda_nutrient(nutrients, "Total lipid (fat)", "G")
+
+        # Sanity check: reject results that are clearly wrong
+        if sanity:
+            if energy_kcal < sanity.get("min_kcal", 0):
+                logger.debug(
+                    f"USDA '{food.get('description')}' rejected: "
+                    f"kcal={energy_kcal} < {sanity['min_kcal']}"
+                )
+                continue
+            if fat_g is not None and fat_g < sanity.get("min_fat", 0):
+                logger.debug(
+                    f"USDA '{food.get('description')}' rejected: "
+                    f"fat={fat_g} < {sanity['min_fat']}"
+                )
+                continue
+
+        # Sodium in mg → salt in g (salt = sodium × 2.5 / 1000)
+        sodium_mg = _usda_nutrient(nutrients, "Sodium, Na", "MG")
+        salt_g = round(sodium_mg * 2.5 / 1000, 2) if sodium_mg is not None else None
+
+        return NutritionPer100g(
+            energy_kcal=energy_kcal,
+            energy_kj=energy_kj,
+            fat_g=fat_g,
+            saturates_g=_usda_nutrient(nutrients, "Fatty acids, total saturated", "G"),
+            carbohydrate_g=_usda_nutrient(nutrients, "Carbohydrate, by difference", "G"),
+            sugars_g=_usda_nutrient(nutrients, "Sugars, total including NLEA", "G"),
+            fibre_g=_usda_nutrient(nutrients, "Fiber, total dietary", "G"),
+            protein_g=protein,
+            salt_g=salt_g,
+        )
+
+    return None
 
 
 def _usda_nutrient(

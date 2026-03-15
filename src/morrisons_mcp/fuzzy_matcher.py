@@ -37,12 +37,22 @@ _SINGLE_CONTAINER_UNITS = frozenset({
     "tin", "can", "jar", "bottle", "pot", "bag", "box", "tub", "pack",
 })
 
-# Keywords that suggest processed/prepared products (checked in category AND name)
+# Keywords that suggest processed/non-ingredient products (checked in category AND name)
 _PROCESSED_KEYWORDS = frozenset({
     "soup", "sauce", "ready meal", "meal kit", "cooking sauce",
     "crisp", "snack", "biscuit", "cracker", "cereal",
     "drink", "juice", "smoothie", "dessert", "cake",
     "mix", "paste", "powder", "stock", "seasoning",
+    "seeds", "nuts", "dried fruit",
+    "baby food", "pet",
+    "home & garden", "kitchen", "utensils",
+    "cleaning", "health & beauty",
+})
+
+# Category keywords that indicate fresh/raw produce
+_FRESH_CATEGORY_KEYWORDS = frozenset({
+    "veg", "fruit", "meat", "fish", "poultry", "dairy",
+    "fresh", "chilled", "bakery", "eggs",
 })
 
 # Synonyms for fresh produce — used when best match confidence is low
