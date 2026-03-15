@@ -106,6 +106,23 @@ FRESH_PRODUCE_SYNONYMS: dict[str, list[str]] = {
 }
 
 
+def _kw_in_text(keyword: str, text: str) -> bool:
+    """Return True if keyword appears as a whole token in text.
+
+    For single-word keywords uses negative lookarounds so that short keywords
+    (e.g. 'mac', 'mix', 'crisp', 'meal') are NOT matched as substrings of
+    longer words ('mackerel', 'mixed', 'crispy', 'oatmeal').  The optional
+    trailing `s` allows matching the keyword's own plural form without
+    requiring a separate plural entry in the set (e.g. 'noodle' → 'noodles').
+
+    For multi-word keywords plain substring matching is used — the phrase is
+    specific enough that false-positive collisions are extremely unlikely.
+    """
+    if " " in keyword:
+        return keyword in text
+    return bool(re.search(r"(?<![a-z])" + re.escape(keyword) + r"s?(?![a-z])", text))
+
+
 def _stem(word: str) -> str:
     """Strip common plural/verb suffixes for fuzzy word matching."""
     w = word.lower().strip()
@@ -264,14 +281,14 @@ def find_best_match(
         # (e.g. "Flying Goose Sriracha Hot Chilli Sauce" — "sauce" in name).
         query_words_set = set(query_words)
         for kw in _PROCESSED_KEYWORDS:
-            if kw in name_lower and kw not in query_words_set:
+            if _kw_in_text(kw, name_lower) and kw not in query_words_set:
                 logger.debug(f"  Name penalty -25: keyword '{kw}' in '{product.name}'")
                 composite -= 25
                 break
         if product.category_path:
             cat_lower_chk = product.category_path.lower()
             for kw in _PROCESSED_KEYWORDS:
-                if kw in cat_lower_chk and kw not in query_words_set:
+                if _kw_in_text(kw, cat_lower_chk) and kw not in query_words_set:
                     logger.debug(
                         f"  Category penalty -25: keyword '{kw}' "
                         f"in '{product.category_path}'"
@@ -283,7 +300,7 @@ def find_best_match(
             # bonus fires (+25).  The standard -25 alone is cancelled by +25 and leaves
             # the snack product tied with fresh veg — this makes it decisive.
             for kw in _HARD_EXCLUSION_CATEGORY_KEYWORDS:
-                if kw in cat_lower_chk and kw not in query_words_set:
+                if _kw_in_text(kw, cat_lower_chk) and kw not in query_words_set:
                     logger.debug(
                         f"  Hard-exclusion penalty -50: keyword '{kw}' "
                         f"in '{product.category_path}'"

@@ -468,3 +468,48 @@ def test_sriracha_not_mac_and_cheese():
     assert match is not None
     assert "Chilli Sauce" in match.name or "Hot" in match.name
     assert "Mac" not in match.name
+
+
+def test_mackerel_not_penalised_for_mac_keyword():
+    """'mackerel' should not lose -25 just because 'mac' is a substring of 'mackerel'."""
+    ingredient = _make_ingredient("mackerel")
+    products = [
+        _make_product(
+            "Morrisons Mackerel Fillets in Brine 125g",
+            price=1.20, product_id="1",
+            category="Meat & Fish > Fish & Seafood > Tinned Fish",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence > 0.5
+
+
+def test_mixed_herbs_not_penalised_for_mix_keyword():
+    """'mixed herbs' should not be penalised because 'mix' is a substring of 'mixed'."""
+    ingredient = _make_ingredient("mixed herbs")
+    products = [
+        _make_product(
+            "Schwartz Mixed Herbs 11g",
+            price=1.50, product_id="1",
+            category="Food Cupboard > Herbs, Spices & Seasoning",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence > 0.4
+
+
+def test_crispy_bacon_not_penalised_for_crisp_keyword():
+    """'crispy bacon' should not be penalised because 'crisp' is a substring of 'crispy'."""
+    ingredient = _make_ingredient("crispy bacon")
+    products = [
+        _make_product(
+            "Morrisons Crispy Smoked Streaky Bacon Rashers 200g",
+            price=2.50, product_id="1",
+            category="Meat & Fish > Bacon, Gammon & Ham",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence > 0.4

@@ -1,5 +1,6 @@
 import logging
 import os
+import re as _re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -84,9 +85,6 @@ mcp = FastMCP(
     "Morrisons Grocery MCP",
     lifespan=app_lifespan,
 )
-
-
-import re as _re
 
 
 def _strip_qualifiers(query: str) -> str:
