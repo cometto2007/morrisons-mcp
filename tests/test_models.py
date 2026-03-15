@@ -112,3 +112,28 @@ def test_ingredient_nutrition_all_optional():
     assert n.estimated_kcal is None
     assert n.matched_product is None
     assert n.estimated_weight_g is None
+
+
+def test_ingredient_synonyms_peas():
+    """'green peas' and 'peas' must have synonym fallbacks so Morrisons snack-only
+    search results trigger a retry with terms that return real vegetable products."""
+    from morrisons_mcp.server import INGREDIENT_SYNONYMS
+    assert "green peas" in INGREDIENT_SYNONYMS
+    assert "peas" in INGREDIENT_SYNONYMS["green peas"]
+    assert "garden peas" in INGREDIENT_SYNONYMS["green peas"]
+    assert "peas" in INGREDIENT_SYNONYMS
+    assert "garden peas" in INGREDIENT_SYNONYMS["peas"]
+
+
+def test_ingredient_synonyms_mayo():
+    """'low-fat mayo' (both hyphenated and space) must resolve to light mayonnaise."""
+    from morrisons_mcp.server import INGREDIENT_SYNONYMS
+    assert "low-fat mayo" in INGREDIENT_SYNONYMS
+    assert "low fat mayo" in INGREDIENT_SYNONYMS
+    assert "light mayonnaise" in INGREDIENT_SYNONYMS["low-fat mayo"]
+
+
+def test_sheet_weight_in_unit_table():
+    """'sheet' unit must be 25g so lasagne sheet counts estimate correctly."""
+    from morrisons_mcp.weight_estimator import UNIT_TO_GRAMS
+    assert UNIT_TO_GRAMS.get("sheet") == 25

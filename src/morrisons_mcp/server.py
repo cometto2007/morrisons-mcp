@@ -27,6 +27,10 @@ INGREDIENT_SYNONYMS: dict[str, list[str]] = {
     "eggplant": ["aubergine"],
     "cilantro": ["coriander"],
     "arugula": ["rocket"],
+    # Morrisons search for "green peas" returns only snack products (Cofresh etc.);
+    # "peas" or "garden peas" returns actual vegetable products.
+    "green peas": ["peas", "garden peas"],
+    "peas": ["garden peas"],
 }
 
 # Qualifier words stripped from the search query on a second attempt when the

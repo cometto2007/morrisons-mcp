@@ -470,6 +470,35 @@ def test_sriracha_not_mac_and_cheese():
     assert "Mac" not in match.name
 
 
+def test_green_peas_only_snacks_triggers_no_match():
+    """When Morrisons returns ONLY snack products for 'green peas', find_best_match
+    should return (None, 0.0) so the synonym fallback in server.py fires and tries
+    'peas' / 'garden peas' instead."""
+    ingredient = ParsedIngredient(
+        original="200g green peas", quantity=200, unit="g",
+        name="green peas", search_query="green peas",
+    )
+    products = [
+        # Only snack results — what Morrisons actually returns for "green peas"
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Cofresh Green Peas & Peanuts Mix 200g", price=1.00,
+            pack_size="200g", available=True,
+            category_path="Food Cupboard > Treats & Snacks > Snacks",
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Cofresh Snack Mix Green Peas 150g", price=0.90,
+            pack_size="150g", available=True,
+            category_path="Food Cupboard > Treats & Snacks > Crisps & Savoury Snacks",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    # Must return no match so the server synonym fallback can try "peas"/"garden peas"
+    assert match is None
+    assert confidence == 0.0
+
+
 def test_mackerel_not_penalised_for_mac_keyword():
     """'mackerel' should not lose -25 just because 'mac' is a substring of 'mackerel'."""
     ingredient = _make_ingredient("mackerel")
