@@ -542,3 +542,40 @@ def test_crispy_bacon_not_penalised_for_crisp_keyword():
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
     assert confidence > 0.4
+
+
+def test_sundried_tomato_not_pesto():
+    """'sundried tomato' should prefer actual sundried tomatoes over pesto products
+    where tomato is only a flavour component."""
+    ingredient = _make_ingredient("sundried tomatoes")
+    products = [
+        _make_product(
+            "Filippo Berio Sundried Tomato Pesto 190g",
+            price=2.50, product_id="1",
+            category="Food Cupboard > Condiments & Sauces",
+        ),
+        _make_product(
+            "Napolina Sundried Tomatoes in Oil 280g",
+            price=2.20, product_id="2",
+            category="Food Cupboard > Tinned & Packaged Foods > Tomatoes",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Pesto" not in match.name
+    assert match.product_id == "2"
+
+
+def test_fish_sauce_not_penalised_by_compound_indicator():
+    """'fish sauce' query: 'sauce' IS in the query so the compound indicator must not fire."""
+    ingredient = _make_ingredient("fish sauce")
+    products = [
+        _make_product(
+            "Squid Brand Fish Sauce 725ml",
+            price=2.20, product_id="1",
+            category="World Foods > Asian Food",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence > 0.5  # compound indicator must not reduce confidence for this query

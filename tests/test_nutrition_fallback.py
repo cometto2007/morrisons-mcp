@@ -287,3 +287,70 @@ async def test_usda_salt_rejects_butter_result():
     assert result is not None
     assert result.energy_kcal == 0
     assert result.fat_g == 0
+
+
+def test_validation_rejects_squash_seeds():
+    """Butternut squash flesh is ~40 kcal, 0.1g fat.
+    A result with 612 kcal / 49g fat (pumpkin seeds) must be rejected."""
+    from morrisons_mcp.models import NutritionPer100g
+    seeds = NutritionPer100g(energy_kcal=612, fat_g=49.0, protein_g=19.0)
+    assert _validate_usda_result("butternut squash", seeds) is False
+
+
+def test_validation_accepts_butternut_squash_flesh():
+    """Butternut squash raw flesh (~40 kcal, 0.1g fat) must pass validation."""
+    from morrisons_mcp.models import NutritionPer100g
+    flesh = NutritionPer100g(energy_kcal=40, fat_g=0.1, protein_g=0.9)
+    assert _validate_usda_result("butternut squash", flesh) is True
+
+
+def test_validation_rejects_high_fat_aubergine():
+    """Aubergine raw is ~25 kcal, 0.2g fat — a high-fat result is wrong food."""
+    from morrisons_mcp.models import NutritionPer100g
+    wrong = NutritionPer100g(energy_kcal=200, fat_g=15.0, protein_g=3.0)
+    assert _validate_usda_result("aubergine", wrong) is False
+
+
+def test_validation_accepts_aubergine():
+    from morrisons_mcp.models import NutritionPer100g
+    real = NutritionPer100g(energy_kcal=25, fat_g=0.2, protein_g=1.0)
+    assert _validate_usda_result("aubergine", real) is True
+
+
+@pytest.mark.asyncio
+async def test_usda_rejects_squash_seeds_returns_correct_result():
+    """USDA search for butternut squash: seed result (612 kcal) rejected,
+    raw flesh result (~40 kcal) accepted."""
+    resp = _make_mock_response({
+        "foods": [
+            {
+                "dataType": "SR Legacy",
+                "description": "Seeds, pumpkin and squash seed kernels, roasted",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 612, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 19.0, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 49.0, "unitName": "G"},
+                    {"nutrientName": "Carbohydrate, by difference", "value": 14.7, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 18, "unitName": "MG"},
+                ],
+            },
+            {
+                "dataType": "Foundation",
+                "description": "Squash, winter, butternut, raw",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 40, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 0.9, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 0.1, "unitName": "G"},
+                    {"nutrientName": "Carbohydrate, by difference", "value": 10.5, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 4, "unitName": "MG"},
+                ],
+            },
+        ]
+    })
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.post.return_value = resp
+
+    result = await _search_usda_fdc("butternut squash", client)
+    assert result is not None
+    assert result.energy_kcal < 60   # raw flesh, not seeds
+    assert result.fat_g < 1.0

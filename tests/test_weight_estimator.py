@@ -102,3 +102,21 @@ def test_stock_pot_weight():
     """1 stock pot ≈ 26g."""
     w = estimate_weight_grams(_make("1 stock pot", 1, None, "stock pot"))
     assert w == 26
+
+
+def test_courgette_weight():
+    """1 whole courgette ≈ 200g."""
+    w = estimate_weight_grams(_make("1 courgette", 1, None, "courgette"))
+    assert w == 200
+
+
+def test_zucchini_weight():
+    """1 zucchini ≈ 200g (same as courgette)."""
+    w = estimate_weight_grams(_make("1 zucchini", 1, None, "zucchini"))
+    assert w == 200
+
+
+def test_bell_pepper_weight():
+    """1 bell pepper ≈ 160g."""
+    w = estimate_weight_grams(_make("1 bell pepper", 1, None, "bell pepper"))
+    assert w == 160

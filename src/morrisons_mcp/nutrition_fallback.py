@@ -36,7 +36,26 @@ _USDA_SEARCH_OVERRIDES: dict[str, str] = {
     "onion": "onion raw",
     "pepper": "spices pepper black",
     "black pepper": "spices pepper black",
+    # Vegetables where USDA returns seeds/processed forms by default
+    "butternut squash": "butternut squash raw",
+    "aubergine": "eggplant raw",
+    "eggplant": "eggplant raw",
+    "lemon": "lemon raw without peel",
 }
+
+# Low-calorie vegetables: max expected kcal and fat per 100g of raw flesh.
+# If USDA returns a result exceeding these thresholds the food is seeds,
+# a processed product, or the wrong food entirely.
+_LOW_CAL_VEG_KCAL_LIMIT = 100   # raw veg flesh is never >100 kcal/100g
+_LOW_CAL_VEG_FAT_LIMIT = 5      # raw veg flesh is never >5g fat/100g
+_LOW_CAL_VEG_KEYWORDS = frozenset({
+    "squash", "aubergine", "eggplant", "courgette", "zucchini", "pumpkin",
+})
+
+
+def _word_in(word: str, text: str) -> bool:
+    """Return True if word appears as a whole word in text (not a substring of a longer word)."""
+    return bool(re.search(r"\b" + re.escape(word) + r"\b", text))
 
 
 def _validate_usda_result(query: str, nutrition: NutritionPer100g) -> bool:
@@ -53,17 +72,25 @@ def _validate_usda_result(query: str, nutrition: NutritionPer100g) -> bool:
     if q in ("salt", "table salt", "salt table") and kcal is not None and kcal > 10:
         return False
 
-    # Pepper (spice) should be <400 kcal
-    if "pepper" in q and kcal is not None and kcal > 500:
+    # Pepper (spice) should be <400 kcal — use word boundary so "bell pepper" is exempt
+    if _word_in("pepper", q) and kcal is not None and kcal > 500:
         return False
 
-    # Oil should be very high fat (>80g/100g)
-    if "oil" in q and fat is not None and fat < 50:
+    # Oil should be very high fat (>80g/100g) — word boundary avoids "olive oil" false-match
+    if _word_in("oil", q) and fat is not None and fat < 50:
         return False
 
-    # Butter must be high fat
-    if "butter" in q and fat is not None and fat < 50:
+    # Butter must be high fat — word boundary avoids matching "butternut squash"
+    if _word_in("butter", q) and fat is not None and fat < 50:
         return False
+
+    # Low-calorie vegetables: seeds and processed forms are far too energy-dense.
+    # Butternut squash flesh ≈ 40 kcal, 0.1g fat; pumpkin seeds ≈ 612 kcal, 49g fat.
+    if any(_word_in(kw, q) for kw in _LOW_CAL_VEG_KEYWORDS):
+        if kcal is not None and kcal > _LOW_CAL_VEG_KCAL_LIMIT:
+            return False
+        if fat is not None and fat > _LOW_CAL_VEG_FAT_LIMIT:
+            return False
 
     return True
 

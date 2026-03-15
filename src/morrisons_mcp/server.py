@@ -26,6 +26,10 @@ SEARCH_QUERY_REWRITES: dict[str, str] = {
     "low fat mayo": "light mayonnaise",
     "mayo": "mayonnaise",
     "tomato paste": "tomato puree",
+    "udon": "udon noodles",
+    "sun-dried tomato": "sundried tomatoes",
+    "sun dried tomato": "sundried tomatoes",
+    "lasagne pasta": "lasagne sheets",
 }
 
 # Ingredient synonyms for search fallback (extends the fresh-produce synonym table

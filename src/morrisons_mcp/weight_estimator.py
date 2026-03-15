@@ -60,10 +60,13 @@ _INGREDIENT_EACH_GRAMS: dict[str, float] = {
     "tomato": 120,
     "pepper": 160,
     "carrot": 80,
-    "aubergine": 300,  # 1 medium aubergine ≈ 300g
+    "aubergine": 300,   # 1 medium aubergine ≈ 300g
     "eggplant": 300,
-    "stock cube": 10,  # 1 stock cube ≈ 10g
-    "stock pot": 26,   # 1 Knorr stock pot ≈ 26g
+    "courgette": 200,   # 1 medium courgette ≈ 200g
+    "zucchini": 200,
+    "bell pepper": 160, # 1 bell pepper ≈ 160g (also caught by "pepper" above)
+    "stock cube": 10,   # 1 stock cube ≈ 10g
+    "stock pot": 26,    # 1 Knorr stock pot ≈ 26g
 }
 
 

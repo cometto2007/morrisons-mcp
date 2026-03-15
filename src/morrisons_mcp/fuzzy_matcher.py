@@ -161,6 +161,18 @@ def _all_query_words_present(query: str, product_name: str) -> bool:
     return all(_stem(word) in product_stems for word in query_words)
 
 
+# Product-type words that, when they appear in the product name alongside a matched
+# query phrase, signal the product is a compound dish where the query ingredient is
+# just a flavour component (e.g. "pesto" in "Sundried Tomato Pesto" means the
+# product is a pesto, not sundried tomatoes).  Only applied for multi-word queries
+# where the phrase was found; reduces the phrase bonus from +25 to +10.
+# "sauce" was intentionally removed from _PROCESSED_KEYWORDS (too broad); it is
+# included here at the softer −15 level, only when a phrase match fired.
+_COMPOUND_PRODUCT_INDICATORS = frozenset({
+    "pesto", "sauce", "dip", "spread", "dressing",
+    "stew", "bake", "risotto", "vinaigrette",
+})
+
 # Food words that, when they immediately precede a query phrase in a product name,
 # signal the product is a compound (e.g. "sardine" before "tomato paste" means
 # this is a sardine product, NOT a tomato paste product).
@@ -176,15 +188,19 @@ def _consecutive_word_bonus(query: str, product_name: str) -> int:
     """
     Score adjustment when a multi-word query appears as a phrase in the product name.
 
-    +25  the query is a word-boundary phrase match and no food noun precedes it
-         (e.g. "tomato paste" in "Napolina Tomato Paste").
+    +25  the query is a word-boundary phrase match, nothing suspicious precedes or
+         follows it (e.g. "tomato paste" in "Napolina Tomato Paste").
+    +10  phrase matched but the product also contains a compound-product indicator
+         (pesto, sauce, dressing…) not present in the query — the ingredient is a
+         flavour component, not the main product
+         (e.g. "sundried tomato" in "Filippo Berio Sundried Tomato Pesto").
     -10  a compound-food noun immediately precedes the phrase — this is a
          compound product, not the standalone ingredient
          (e.g. "sardine" before "tomato paste" in "Sardine & Tomato Paste").
       0  single-word queries — adjacency is trivially true, no signal.
 
     Uses a word-boundary pattern so "tomato paste" does NOT match inside
-    "tomato paste" that is part of "tomatopaste" (no such word, but defensive).
+    "tomatopaste" (no such word, but defensive).
     The naive substring "fish sauce" in "fish pie sauce" check is intentionally
     avoided here — that product fails because "pie" interrupts the phrase.
     """
@@ -212,6 +228,13 @@ def _consecutive_word_bonus(query: str, product_name: str) -> int:
     preceding_words = re.findall(r'[a-z]+', preceding_text)
     if preceding_words and preceding_words[-1] in _COMPOUND_FOOD_PRECEDING:
         return -10
+
+    # Check if a compound-product indicator appears anywhere in the product name
+    # but is NOT part of the query (the ingredient is used as a flavour).
+    query_word_set = set(query_lower.split())
+    for indicator in _COMPOUND_PRODUCT_INDICATORS:
+        if _kw_in_text(indicator, name_lower) and indicator not in query_word_set:
+            return 10
 
     return 25
 
