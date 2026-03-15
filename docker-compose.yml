@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     environment:
       - CACHE_DB_PATH=/data/cache.db
+      - MEALIE_URL=${MEALIE_URL:-}
+      - MEALIE_API_KEY=${MEALIE_API_KEY:-}
     volumes:
       - morrisons_data:/data
     networks:
@@ -16,8 +18,6 @@ services:
       - "traefik.http.routers.morrisons-mcp.tls=true"
       - "traefik.http.routers.morrisons-mcp.tls.certresolver=letsencrypt"
       - "traefik.http.services.morrisons-mcp.loadbalancer.server.port=8000"
-      - "traefik.http.middlewares.morrisons-sse.headers.customresponseheaders.X-Accel-Buffering=no"
-      - "traefik.http.routers.morrisons-mcp.middlewares=morrisons-sse"
 
 networks:
   chrislabnet:

@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from fastmcp import FastMCP, Context
 
 from .cache import ProductCache
+from .mealie_client import MealieClient
 from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS
@@ -36,10 +37,12 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     _configure_logging()
     cache = ProductCache(db_path=os.getenv("CACHE_DB_PATH", "/data/cache.db"))
     morrison = MorrisonClient(cache=cache)
+    mealie = MealieClient(cache=cache)
     logger.info("Morrisons MCP server starting up")
     try:
-        yield {"morrison": morrison, "cache": cache}
+        yield {"morrison": morrison, "cache": cache, "mealie": mealie}
     finally:
+        await mealie.close()
         await morrison.close()
         await cache.close()
         logger.info("Morrisons MCP server shut down")
@@ -148,13 +151,27 @@ async def cost_recipe(
         recipe_name: Optional recipe name for labelling
     """
     morrison: MorrisonClient = ctx.lifespan_context["morrison"]
+    mealie: MealieClient = ctx.lifespan_context["mealie"]
 
     results = []
     total = 0.0
+    total_excluding_pantry = 0.0
     unmatched = 0
 
     for ing_str in ingredients:
         parsed = parse_ingredient(ing_str)
+
+        # Check if it's a pantry staple via Mealie
+        on_hand = await mealie.is_pantry_staple(parsed.name)
+        if on_hand:
+            results.append(IngredientCost(
+                ingredient=ing_str,
+                parsed_query=parsed.search_query,
+                on_hand=True,
+                note="Pantry staple — already have at home",
+            ))
+            continue
+
         try:
             match, confidence = await _match_with_synonym_fallback(parsed, morrison)
         except Exception as e:
@@ -164,6 +181,7 @@ async def cost_recipe(
         cost = match.price if match else None
         if cost is not None:
             total += cost
+            total_excluding_pantry += cost
         else:
             unmatched += 1
 
@@ -182,6 +200,10 @@ async def cost_recipe(
         ingredients=results,
         total_cost=round(total, 2),
         cost_per_serving=round(total / servings, 2) if servings and servings > 0 else None,
+        cost_excluding_pantry=round(total_excluding_pantry, 2),
+        cost_per_serving_excluding_pantry=(
+            round(total_excluding_pantry / servings, 2) if servings and servings > 0 else None
+        ),
         unmatched_count=unmatched,
     )
 
@@ -208,6 +230,7 @@ async def get_recipe_nutrition(
         recipe_name: Optional recipe name
     """
     morrison: MorrisonClient = ctx.lifespan_context["morrison"]
+    mealie: MealieClient = ctx.lifespan_context["mealie"]
 
     results = []
     total_kcal: float = 0.0
@@ -218,7 +241,8 @@ async def get_recipe_nutrition(
 
     for ing_str in ingredients:
         parsed = parse_ingredient(ing_str)
-        ing_nutrition = IngredientNutrition(ingredient=ing_str)
+        on_hand = await mealie.is_pantry_staple(parsed.name)
+        ing_nutrition = IngredientNutrition(ingredient=ing_str, on_hand=on_hand)
 
         try:
             match, confidence = await _match_with_synonym_fallback(parsed, morrison)

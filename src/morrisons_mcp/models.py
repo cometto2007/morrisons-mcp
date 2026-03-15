@@ -78,6 +78,7 @@ class IngredientCost(BaseModel):
     matched_product: Optional[ProductResult] = None
     match_confidence: Optional[float] = Field(None, description="0.0 to 1.0 fuzzy match score")
     cost: Optional[float] = Field(None, description="Price of matched product in GBP")
+    on_hand: bool = Field(False, description="True if ingredient is a pantry staple the user already has")
     note: Optional[str] = Field(None, description="e.g. 'No match found', 'Chose cheapest per-unit'")
 
 class RecipeCostResult(BaseModel):
@@ -87,6 +88,8 @@ class RecipeCostResult(BaseModel):
     ingredients: list[IngredientCost]
     total_cost: float = Field(description="Sum of matched ingredient costs in GBP")
     cost_per_serving: Optional[float] = None
+    cost_excluding_pantry: float = Field(description="Total cost excluding pantry staples")
+    cost_per_serving_excluding_pantry: Optional[float] = None
     unmatched_count: int = Field(description="Number of ingredients with no match")
 
 
@@ -99,6 +102,7 @@ class IngredientNutrition(BaseModel):
     pack_size: Optional[str] = None
     nutrition_per_100g: Optional[NutritionPer100g] = None
     nutrition_source: Optional[str] = Field(None, description="Where nutrition data came from: 'Morrisons', 'Open Food Facts', or 'USDA FoodData Central'")
+    on_hand: bool = Field(False, description="True if ingredient is a pantry staple the user already has")
     estimated_weight_g: Optional[float] = Field(None, description="Estimated weight used from recipe")
     estimated_kcal: Optional[float] = None
     estimated_protein_g: Optional[float] = None

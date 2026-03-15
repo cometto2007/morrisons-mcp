@@ -42,6 +42,7 @@ def test_recipe_cost_result_unmatched_count():
     r = RecipeCostResult(
         ingredients=[],
         total_cost=0.0,
+        cost_excluding_pantry=0.0,
         unmatched_count=2,
     )
     assert r.unmatched_count == 2
