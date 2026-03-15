@@ -78,3 +78,27 @@ def test_unknown_unit_no_match():
 def test_tbsp_honey_weight():
     w = estimate_weight_grams(_make("1 tbsp honey", 1, "tbsp", "honey"))
     assert w == 21
+
+
+def test_sheet_lasagne_weight():
+    """12 lasagne sheets × 25g/sheet = 300g."""
+    w = estimate_weight_grams(_make("12 sheet lasagne pasta", 12, "sheet", "lasagne pasta"))
+    assert w == 300
+
+
+def test_aubergine_weight():
+    """1 whole aubergine ≈ 300g."""
+    w = estimate_weight_grams(_make("1 whole aubergine", 1, "whole", "aubergine"))
+    assert w == 300
+
+
+def test_stock_cube_weight():
+    """2 stock cubes × 10g = 20g."""
+    w = estimate_weight_grams(_make("2 stock cubes", 2, None, "stock cubes"))
+    assert w == 20
+
+
+def test_stock_pot_weight():
+    """1 stock pot ≈ 26g."""
+    w = estimate_weight_grams(_make("1 stock pot", 1, None, "stock pot"))
+    assert w == 26

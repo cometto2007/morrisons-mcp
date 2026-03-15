@@ -177,3 +177,44 @@ def test_dash_salt_parses_correctly():
     assert result.unit == "dash"
     assert result.name == "salt"
     assert result.search_query == "salt"
+
+
+def test_macro_format_quantity_inferred_as_grams():
+    """'120 Potato' — macro-tracking format with no unit → infer grams."""
+    result = parse_ingredient("120 Potato")
+    assert result.quantity == 120
+    assert result.unit == "g"
+    assert "potato" in result.name.lower()
+
+
+def test_macro_format_large_quantity_grams():
+    """'90 Pork Mince' — quantity > 20, no unit → infer grams."""
+    result = parse_ingredient("90 Pork Mince")
+    assert result.quantity == 90
+    assert result.unit == "g"
+    assert "pork mince" in result.name.lower()
+
+
+def test_small_countable_kept_unitless():
+    """'1 Egg' — quantity ≤ 20, no unit → keep unitless (countable item)."""
+    result = parse_ingredient("1 Egg")
+    assert result.quantity == 1
+    assert result.unit is None
+
+
+def test_percent_fat_stripped_from_search():
+    """'90 5% Fat Pork Mince' → search query should not include the fat descriptor."""
+    result = parse_ingredient("90 5% Fat Pork Mince")
+    assert result.quantity == 90
+    assert result.unit == "g"
+    assert "fat" not in result.search_query.lower()
+    assert "pork" in result.search_query.lower()
+    assert "mince" in result.search_query.lower()
+
+
+def test_sheet_unit_parsed():
+    """'12 sheet lasagne pasta' → unit='sheet', name contains 'lasagne'."""
+    result = parse_ingredient("12 sheet lasagne pasta")
+    assert result.quantity == 12
+    assert result.unit == "sheet"
+    assert "lasagne" in result.name.lower()

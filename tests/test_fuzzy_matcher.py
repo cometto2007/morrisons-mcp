@@ -371,6 +371,58 @@ def test_fish_sauce_not_fish_pie_sauce():
     assert "Pie" not in match.name
 
 
+def test_green_peas_not_snack_mix():
+    """'green peas' should match frozen/fresh peas, not a snack mix in Treats & Snacks."""
+    ingredient = ParsedIngredient(
+        original="200g green peas", quantity=200, unit="g",
+        name="green peas", search_query="green peas",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Cofresh Green Peas & Peanuts Mix 200g", price=1.00,
+            pack_size="200g", available=True,
+            category_path="Food Cupboard > Treats & Snacks > Snacks",
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Morrisons Frozen Green Peas 900g", price=1.35,
+            pack_size="900g", available=True,
+            category_path="Frozen > Frozen Vegetables",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Peanuts" not in match.name
+    assert match.product_id == "2"
+
+
+def test_tomato_paste_not_sardine_paste():
+    """'tomato paste' should match the tomato paste product, not sardine & tomato paste."""
+    ingredient = ParsedIngredient(
+        original="2 tbsp tomato paste", quantity=2, unit="tbsp",
+        name="tomato paste", search_query="tomato paste",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Napolina Tomato Paste 200g", price=0.85,
+            pack_size="200g", available=True,
+            category_path="Food Cupboard > Tinned & Packaged Foods > Tomatoes",
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Princes Sardine & Tomato Paste 75g", price=0.89,
+            pack_size="75g", available=True,
+            category_path="Food Cupboard > Tinned & Packaged Foods > Fish",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Sardine" not in match.name
+    assert match.product_id == "1"
+
+
 def test_sriracha_not_mac_and_cheese():
     """'sriracha' should match the actual sriracha sauce, not a mac & cheese ready meal."""
     ingredient = ParsedIngredient(

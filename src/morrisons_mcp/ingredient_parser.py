@@ -13,7 +13,7 @@ KNOWN_UNITS = [
     "litre", "liter", "ml", "kg", "lb", "oz",
     "clove", "bunch", "pinch", "spray", "dash",
     "medium", "large", "small", "whole",
-    "piece", "slice",
+    "piece", "slice", "sheet",
     "cup", "pot", "tin", "can",
     "g", "l",
 ]
@@ -116,6 +116,10 @@ def _build_search_query(name: str) -> str:
     """Build a cleaned search query from ingredient name."""
     query = name.lower()
 
+    # Strip percentage-fat descriptors common in macro/fitness recipe formats
+    # e.g. "5% Fat Pork Mince" → "Pork Mince", "20% fat beef" → "beef"
+    query = re.sub(r'\d+(?:\.\d+)?%\s*fat\b\s*', '', query, flags=re.IGNORECASE)
+
     # Strip non-searchable phrases
     for phrase in SEARCH_STRIP_PHRASES:
         query = query.replace(phrase, "")
@@ -182,6 +186,14 @@ def parse_ingredient(raw: str) -> ParsedIngredient:
             # Strip any residual quantity+unit annotation (e.g. "0.2ml" in
             # "3 spray 0.2ml, Sunflower Oil Spray" after extracting "spray")
             remainder = _RESIDUAL_QTY_RE.sub("", remainder)
+
+    # Gram inference for macro/fitness recipe format: "120 Potato", "90 5% Fat Pork Mince"
+    # When there is a quantity but no unit and the number is > 20 (i.e. clearly
+    # not a countable item count like "6 eggs" or "2 onions"), assume grams.
+    # Quantities ≤ 20 are kept unitless so countable items (eggs, rashers, etc.)
+    # continue to use the per-item weight estimates in weight_estimator.py.
+    if quantity is not None and unit is None and quantity > 20:
+        unit = "g"
 
     name = _clean_name(remainder)
     search_query = _build_search_query(name)

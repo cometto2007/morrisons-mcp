@@ -40,7 +40,14 @@ class MealieClient:
             return False
 
         name_lower = ingredient_name.lower().strip()
-        cache_key = f"mealie_food:{name_lower}"
+
+        # Guard against trivially short strings that could fuzzy-match anything
+        if len(name_lower) < 2:
+            return False
+
+        # v2 key intentionally busts any pre-fix-round stale cache entries
+        # (old code could have cached "onion" → True incorrectly)
+        cache_key = f"mealie_food_v2:{name_lower}"
 
         # Check cache first
         if self._cache:

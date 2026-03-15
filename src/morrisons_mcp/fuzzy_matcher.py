@@ -60,6 +60,10 @@ _PROCESSED_KEYWORDS = frozenset({
     "wrap",
     "meal",
     "curry",     # ready-meal curries (not curry paste/powder — those contain "paste"/"powder" already)
+    # Snack / confectionery categories (Bug 1: green peas → snack mix)
+    "treats", "snacks", "crisps", "chips",
+    "confectionery", "chocolate", "sweets",
+    "biscuits", "cookies",
 })
 
 # Category keywords that indicate fresh/raw produce
@@ -119,25 +123,55 @@ def _all_query_words_present(query: str, product_name: str) -> bool:
     return all(_stem(word) in product_stems for word in query_words)
 
 
+# Food words that, when they immediately precede a query phrase in a product name,
+# signal the product is a compound (e.g. "sardine" before "tomato paste" means
+# this is a sardine product, NOT a tomato paste product).
+_COMPOUND_FOOD_PRECEDING = frozenset({
+    "sardine", "anchovy", "mackerel", "herring", "pilchard",
+    "chicken", "beef", "pork", "lamb", "turkey", "duck",
+    "prawn", "shrimp", "crab", "lobster",
+    "mushroom", "spinach", "cheese",
+})
+
+
 def _consecutive_word_bonus(query: str, product_name: str) -> int:
     """
-    Bonus if the multi-word query appears as a consecutive phrase in the
-    product name (i.e. the words are adjacent, not interleaved).
+    Score adjustment when a multi-word query appears as a phrase in the product name.
 
-    E.g. "fish sauce" is a substring of "Squid Brand Fish Sauce" → +25, but
-    it is NOT a substring of "Morrisons Fish Pie Sauce" (interrupted by "Pie") → 0.
+    +25  the query is a word-boundary phrase match and no food noun precedes it
+         (e.g. "tomato paste" in "Napolina Tomato Paste").
+    -10  a compound-food noun immediately precedes the phrase — this is a
+         compound product, not the standalone ingredient
+         (e.g. "sardine" before "tomato paste" in "Sardine & Tomato Paste").
+      0  single-word queries — adjacency is trivially true, no signal.
 
-    Only applied for multi-word queries — for single-word queries the word is
-    trivially present (the all-words filter already guarantees it), so there is
-    no adjacency signal to extract.
+    Uses a word-boundary pattern so "tomato paste" does NOT match inside
+    "tomato paste" that is part of "tomatopaste" (no such word, but defensive).
+    The naive substring "fish sauce" in "fish pie sauce" check is intentionally
+    avoided here — that product fails because "pie" interrupts the phrase.
     """
     query_lower = query.lower().strip()
-    # No adjacency signal to distinguish for single-word queries
     if " " not in query_lower:
         return 0
-    if query_lower in product_name.lower():
-        return 25
-    return 0
+
+    name_lower = product_name.lower()
+    # Phrase must be delimited by whitespace/punctuation on both sides
+    pattern = (
+        r'(?:^|[\s&,/])\s*'
+        + re.escape(query_lower)
+        + r'(?=\s|[,/]|$|\d)'
+    )
+    m = re.search(pattern, name_lower)
+    if not m:
+        return 0
+
+    # Check if a compound-food noun immediately precedes the matched phrase
+    preceding_text = name_lower[:m.start()].strip().rstrip("&,/ ")
+    preceding_words = re.findall(r'[a-z]+', preceding_text)
+    if preceding_words and preceding_words[-1] in _COMPOUND_FOOD_PRECEDING:
+        return -10
+
+    return 25
 
 
 def find_best_match(

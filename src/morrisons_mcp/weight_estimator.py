@@ -23,6 +23,7 @@ UNIT_TO_GRAMS: dict[str, float] = {
     "spray": 0.5,
     "slice": 30,
     "piece": 50,
+    "sheet": 25,      # 1 lasagne sheet ≈ 25g
     "pot": 150,
     "jar": 400,
     "bottle": 500,
@@ -59,6 +60,10 @@ _INGREDIENT_EACH_GRAMS: dict[str, float] = {
     "tomato": 120,
     "pepper": 160,
     "carrot": 80,
+    "aubergine": 300,  # 1 medium aubergine ≈ 300g
+    "eggplant": 300,
+    "stock cube": 10,  # 1 stock cube ≈ 10g
+    "stock pot": 26,   # 1 Knorr stock pot ≈ 26g
 }
 
 

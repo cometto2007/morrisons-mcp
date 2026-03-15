@@ -10,6 +10,37 @@ from .mealie_client import MealieClient
 from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
+
+# Ingredient synonyms for search fallback (extends the fresh-produce synonym table
+# with common shopping-name substitutions and regional spelling variants).
+INGREDIENT_SYNONYMS: dict[str, list[str]] = {
+    "mayo": ["mayonnaise"],
+    "low-fat mayo": ["light mayonnaise", "reduced fat mayonnaise"],
+    "low fat mayo": ["light mayonnaise", "reduced fat mayonnaise"],
+    "tomato paste": ["tomato puree", "tomato purée", "tomato concentrate"],
+    "stock cube": ["stock pot", "bouillon cube"],
+    "brown rice": ["wholegrain rice", "brown basmati rice"],
+    "spring onion": ["salad onion"],
+    "scallion": ["spring onion", "salad onion"],
+    "zucchini": ["courgette"],
+    "eggplant": ["aubergine"],
+    "cilantro": ["coriander"],
+    "arugula": ["rocket"],
+}
+
+# Qualifier words stripped from the search query on a second attempt when the
+# full query returns no match.  Order matters — strip longest patterns first.
+_QUALIFIER_STRIP_PATTERNS = [
+    r'\blow[\s-]fat\b',
+    r'\breduced[\s-]fat\b',
+    r'\bfull[\s-]fat\b',
+    r'\blight\b',
+    r'\bdiet\b',
+    r'\bzero\b',
+    r'\bsugar[\s-]free\b',
+    r'\bskimmed\b',
+    r'\bsemi[\s-]skimmed\b',
+]
 from .nutrition_fallback import get_fallback_nutrition
 from .weight_estimator import estimate_weight_grams
 from .models import (
@@ -55,22 +86,56 @@ mcp = FastMCP(
 )
 
 
+import re as _re
+
+
+def _strip_qualifiers(query: str) -> str:
+    """Return query with common quality/diet qualifiers removed."""
+    q = query
+    for pat in _QUALIFIER_STRIP_PATTERNS:
+        q = _re.sub(pat, '', q, flags=_re.IGNORECASE)
+    return _re.sub(r'\s+', ' ', q).strip()
+
+
+async def _try_synonyms(
+    parsed: ParsedIngredient,
+    synonyms: list[str],
+    morrison: MorrisonClient,
+    best_confidence: float,
+) -> tuple[ProductResult | None, float]:
+    """Search each synonym and return the best result above threshold."""
+    best_match: ProductResult | None = None
+    for synonym in synonyms:
+        syn_parsed = ParsedIngredient(
+            original=parsed.original,
+            quantity=parsed.quantity,
+            unit=parsed.unit,
+            name=synonym,
+            search_query=synonym,
+        )
+        syn_products = await morrison.search(synonym, max_results=20)
+        syn_match, syn_confidence = find_best_match(syn_parsed, syn_products)
+        if syn_confidence > best_confidence:
+            best_match, best_confidence = syn_match, syn_confidence
+    return best_match, best_confidence
+
+
 async def _match_with_synonym_fallback(
     parsed: ParsedIngredient,
     morrison: MorrisonClient,
 ) -> tuple[ProductResult | None, float]:
     """
-    Try to match a parsed ingredient to a product. If the best match
-    confidence is below 0.5 and a fresh produce synonym exists, search
-    again with the synonym and use the better result.
+    Try to match a parsed ingredient to a product. Applies three fallback
+    strategies in sequence when the initial match is absent or weak:
+
+    1. Fresh-produce synonym table (pumpkin → butternut squash, etc.)
+    2. Ingredient synonym table (tomato paste → tomato puree, etc.)
+    3. Qualifier stripping (low-fat mayo → mayo → mayonnaise)
     """
     products = await morrison.search(parsed.search_query, max_results=20)
     match, confidence = find_best_match(parsed, products)
 
-    # Try synonym fallback if:
-    # 1. Confidence is low (<0.5), OR
-    # 2. Best match's category doesn't look like fresh produce
-    #    (e.g. "pumpkin" matched "Pumpkin Seeds" in Nuts/Seeds category)
+    # Decide whether to try fallbacks
     should_try_synonym = confidence < 0.5
     if not should_try_synonym and match and match.category_path:
         cat_lower = match.category_path.lower()
@@ -79,20 +144,49 @@ async def _match_with_synonym_fallback(
             should_try_synonym = True
 
     if should_try_synonym:
-        synonyms = FRESH_PRODUCE_SYNONYMS.get(parsed.search_query.lower(), [])
-        for synonym in synonyms:
-            syn_parsed = ParsedIngredient(
-                original=parsed.original,
-                quantity=parsed.quantity,
-                unit=parsed.unit,
-                name=synonym,
-                search_query=synonym,
+        query_lower = parsed.search_query.lower()
+
+        # 1. Fresh-produce synonyms
+        fresh_synonyms = FRESH_PRODUCE_SYNONYMS.get(query_lower, [])
+        if fresh_synonyms:
+            syn_match, syn_conf = await _try_synonyms(
+                parsed, fresh_synonyms, morrison, confidence or 0.0
             )
-            syn_products = await morrison.search(synonym, max_results=20)
-            syn_match, syn_confidence = find_best_match(syn_parsed, syn_products)
-            if syn_confidence > 0.4:
-                match, confidence = syn_match, syn_confidence
-                break
+            if syn_conf > (confidence or 0.0):
+                match, confidence = syn_match, syn_conf
+
+        # 2. Ingredient synonyms (mayo, tomato paste, brown rice, etc.)
+        ing_synonyms = INGREDIENT_SYNONYMS.get(query_lower, [])
+        if ing_synonyms:
+            syn_match, syn_conf = await _try_synonyms(
+                parsed, ing_synonyms, morrison, confidence or 0.0
+            )
+            if syn_conf > (confidence or 0.0):
+                match, confidence = syn_match, syn_conf
+
+        # 3. Qualifier stripping: "low-fat mayo" → "mayo", "mozzarella light" → "mozzarella"
+        if not match or confidence < 0.4:
+            stripped = _strip_qualifiers(parsed.search_query)
+            if stripped and stripped != parsed.search_query:
+                stripped_parsed = ParsedIngredient(
+                    original=parsed.original,
+                    quantity=parsed.quantity,
+                    unit=parsed.unit,
+                    name=stripped,
+                    search_query=stripped,
+                )
+                stripped_products = await morrison.search(stripped, max_results=20)
+                stripped_match, stripped_conf = find_best_match(stripped_parsed, stripped_products)
+                # Also try ingredient synonyms of the stripped query
+                stripped_ing_syns = INGREDIENT_SYNONYMS.get(stripped.lower(), [])
+                if stripped_ing_syns:
+                    syn_match, syn_conf = await _try_synonyms(
+                        stripped_parsed, stripped_ing_syns, morrison, stripped_conf
+                    )
+                    if syn_conf > stripped_conf:
+                        stripped_match, stripped_conf = syn_match, syn_conf
+                if stripped_conf > (confidence or 0.0):
+                    match, confidence = stripped_match, stripped_conf
 
     return match, confidence
 
