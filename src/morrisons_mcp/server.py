@@ -7,7 +7,6 @@ from fastmcp import FastMCP, Context
 
 from .cache import ProductCache
 from .morrison_client import MorrisonClient
-from .mealie_client import MealieClient
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match
 from .models import (
@@ -35,22 +34,11 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     _configure_logging()
     cache = ProductCache(db_path=os.getenv("CACHE_DB_PATH", "/data/cache.db"))
     morrison = MorrisonClient(cache=cache)
-    mealie_url = os.getenv("MEALIE_URL", "")
-    mealie = MealieClient(
-        base_url=mealie_url,
-        api_key=os.getenv("MEALIE_API_KEY", ""),
-    )
-    if not mealie_url:
-        logger.warning(
-            "MEALIE_URL is not set. The cost_recipe_from_mealie tool will "
-            "fail until it is configured."
-        )
     logger.info("Morrisons MCP server starting up")
     try:
-        yield {"morrison": morrison, "mealie": mealie, "cache": cache}
+        yield {"morrison": morrison, "cache": cache}
     finally:
         await morrison.close()
-        await mealie.close()
         await cache.close()
         logger.info("Morrisons MCP server shut down")
 
@@ -59,55 +47,6 @@ mcp = FastMCP(
     "Morrisons Grocery MCP",
     lifespan=app_lifespan,
 )
-
-
-# ---------------------------------------------------------------------------
-# Shared internal logic
-# ---------------------------------------------------------------------------
-
-async def _cost_recipe_internal(
-    morrison: MorrisonClient,
-    ingredients: list[str],
-    servings: float | None = None,
-    recipe_name: str | None = None,
-) -> RecipeCostResult:
-    """Core recipe costing logic shared by cost_recipe and cost_recipe_from_mealie."""
-    results = []
-    total = 0.0
-    unmatched = 0
-
-    for ing_str in ingredients:
-        parsed = parse_ingredient(ing_str)
-        try:
-            products = await morrison.search(parsed.search_query, max_results=20)
-            match, confidence = find_best_match(parsed, products)
-        except Exception as e:
-            logger.error(f"Error searching for '{parsed.search_query}': {e}")
-            match, confidence = None, 0.0
-
-        cost = match.price if match else None
-        if cost is not None:
-            total += cost
-        else:
-            unmatched += 1
-
-        results.append(IngredientCost(
-            ingredient=ing_str,
-            parsed_query=parsed.search_query,
-            matched_product=match,
-            match_confidence=round(confidence, 2) if match else None,
-            cost=cost,
-            note="No match found" if not match else None,
-        ))
-
-    return RecipeCostResult(
-        recipe_name=recipe_name,
-        servings=servings,
-        ingredients=results,
-        total_cost=round(total, 2),
-        cost_per_serving=round(total / servings, 2) if servings and servings > 0 else None,
-        unmatched_count=unmatched,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +107,7 @@ async def cost_recipe(
     """
     Cost a recipe by matching ingredient strings to Morrisons products.
     Takes a list of ingredient strings (e.g. ["500g chicken breast", "1 tin chopped tomatoes"])
-    and returns the total cost plus per-ingredient breakdown.
+    and returns the total cost plus per-ingredient breakdown with matched products and prices.
 
     Args:
         ingredients: List of ingredient strings with quantities
@@ -176,43 +115,47 @@ async def cost_recipe(
         recipe_name: Optional recipe name for labelling
     """
     morrison: MorrisonClient = ctx.lifespan_context["morrison"]
-    return await _cost_recipe_internal(
-        morrison, ingredients, servings=servings, recipe_name=recipe_name
+
+    results = []
+    total = 0.0
+    unmatched = 0
+
+    for ing_str in ingredients:
+        parsed = parse_ingredient(ing_str)
+        try:
+            products = await morrison.search(parsed.search_query, max_results=20)
+            match, confidence = find_best_match(parsed, products)
+        except Exception as e:
+            logger.error(f"Error searching for '{parsed.search_query}': {e}")
+            match, confidence = None, 0.0
+
+        cost = match.price if match else None
+        if cost is not None:
+            total += cost
+        else:
+            unmatched += 1
+
+        results.append(IngredientCost(
+            ingredient=ing_str,
+            parsed_query=parsed.search_query,
+            matched_product=match,
+            match_confidence=round(confidence, 2) if match else None,
+            cost=cost,
+            note="No match found" if not match else None,
+        ))
+
+    return RecipeCostResult(
+        recipe_name=recipe_name,
+        servings=servings,
+        ingredients=results,
+        total_cost=round(total, 2),
+        cost_per_serving=round(total / servings, 2) if servings and servings > 0 else None,
+        unmatched_count=unmatched,
     )
 
 
 # ---------------------------------------------------------------------------
-# Tool 4: cost_recipe_from_mealie
-# ---------------------------------------------------------------------------
-
-@mcp.tool
-async def cost_recipe_from_mealie(recipe_slug: str, ctx: Context) -> RecipeCostResult:
-    """
-    Pull a recipe from Mealie by slug and cost all its ingredients via Morrisons.
-    Returns total cost, per-serving cost, and per-ingredient breakdown with matched products.
-
-    Args:
-        recipe_slug: The Mealie recipe slug (e.g. "chicken-poke", "spaghetti-bolognese")
-    """
-    mealie: MealieClient = ctx.lifespan_context["mealie"]
-    morrison: MorrisonClient = ctx.lifespan_context["morrison"]
-
-    try:
-        name, servings, ingredient_strings = await mealie.get_recipe_ingredients(recipe_slug)
-    except Exception as e:
-        logger.error(f"Failed to fetch recipe '{recipe_slug}' from Mealie: {e}")
-        raise RuntimeError(
-            f"Could not fetch recipe '{recipe_slug}' from Mealie. "
-            f"Check MEALIE_URL and MEALIE_API_KEY. Error: {e}"
-        ) from e
-
-    return await _cost_recipe_internal(
-        morrison, ingredient_strings, servings=servings, recipe_name=name
-    )
-
-
-# ---------------------------------------------------------------------------
-# Tool 5: get_recipe_nutrition
+# Tool 4: get_recipe_nutrition
 # ---------------------------------------------------------------------------
 
 @mcp.tool
@@ -257,9 +200,7 @@ async def get_recipe_nutrition(
             try:
                 detail = await morrison.get_product_detail(match.retailer_product_id)
             except Exception as e:
-                logger.error(
-                    f"Error fetching BOP for '{match.retailer_product_id}': {e}"
-                )
+                logger.error(f"Error fetching BOP for '{match.retailer_product_id}': {e}")
                 results.append(ing_nutrition)
                 continue
 
@@ -267,14 +208,13 @@ async def get_recipe_nutrition(
             ing_nutrition.pack_size = match.pack_size
             ing_nutrition.nutrition_per_100g = detail.nutrition_per_100g
 
-            # Estimate weight in grams from quantity + unit
             weight_g: float | None = None
             if parsed.unit == "kg":
                 weight_g = (parsed.quantity or 0) * 1000
             elif parsed.unit in ("g", "ml"):
                 weight_g = parsed.quantity
             elif parsed.unit is None and parsed.quantity is not None:
-                weight_g = parsed.quantity  # best guess for unit-less quantities
+                weight_g = parsed.quantity
 
             ing_nutrition.estimated_weight_g = weight_g
 

@@ -1,6 +1,6 @@
 # Morrisons MCP Server
 
-A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery data and exposes tools for product search, recipe costing, and nutrition analysis. It integrates with an existing [Mealie](https://mealie.io) instance for recipe ingredient sourcing, enabling Claude.ai to answer questions like "how much will this recipe cost at Morrisons?" or "what are the macros for this meal plan?"
+A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery data and exposes tools for product search, recipe costing, and nutrition analysis. Enables Claude.ai to answer questions like "how much will this recipe cost at Morrisons?" or "what are the macros for this meal plan?"
 
 ---
 
@@ -11,7 +11,6 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `search_products` | Search Morrisons products by keyword. Returns price, unit price, promotions, pack size, category. |
 | `get_product_detail` | Get full product detail including nutrition per 100g (kcal, protein, fat, carbs, salt, etc.). |
 | `cost_recipe` | Cost a recipe from a list of ingredient strings. Returns total cost + per-ingredient breakdown. |
-| `cost_recipe_from_mealie` | Pull a recipe from Mealie by slug and cost it automatically via Morrisons. |
 | `get_recipe_nutrition` | Match recipe ingredients to Morrisons products and estimate total/per-serving nutrition. |
 
 ---
@@ -20,43 +19,25 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and fill in:
-
-```env
-MEALIE_URL=https://mealie.chrislab.it
-MEALIE_API_KEY=your_mealie_api_key_here
-CACHE_DB_PATH=/data/cache.db
-```
+Optionally copy `.env.example` to `.env`. The only configurable variable is:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MEALIE_URL` | Base URL of your Mealie instance | — |
-| `MEALIE_API_KEY` | Mealie API key (Settings → API Tokens) | — |
-| `CACHE_DB_PATH` | Path for the SQLite cache database | `/data/cache.db` |
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING) | `INFO` |
 
 ### Docker (recommended)
 
 ```bash
-# Build the image
-docker build -t morrisons-mcp .
-
-# Run with docker-compose
-cp .env.example .env
-# Edit .env with your values
 docker compose up -d
 ```
 
-The server will be available at `http://localhost:8045/sse`.
+The server listens on port 8000. With Traefik it will be available at your configured hostname (e.g. `https://morrisons-mcp.chrislab.it/sse`).
 
 ### Running Locally
 
 ```bash
 # Install dependencies (Python 3.12+)
 pip install -e ".[dev]"
-
-# Create cache directory
-mkdir -p /data
 
 # Start the server
 python -m morrisons_mcp.server
@@ -68,9 +49,7 @@ python -m morrisons_mcp.server
 
 1. In Claude.ai, go to **Settings → Integrations → Add MCP Server**
 2. Enter the SSE URL: `https://morrisons-mcp.chrislab.it/sse`
-3. The 5 tools will appear automatically
-
-When running locally: `http://localhost:8045/sse`
+3. The 4 tools will appear automatically
 
 ---
 
@@ -101,10 +80,13 @@ cost_recipe(
 → { total_cost: 6.25, cost_per_serving: 1.56, unmatched_count: 0, ingredients: [...] }
 ```
 
-**Cost a Mealie recipe:**
+**Get recipe nutrition:**
 ```
-cost_recipe_from_mealie("chicken-poke")
-→ { recipe_name: "Chicken Poke", total_cost: 8.40, cost_per_serving: 2.10, ... }
+get_recipe_nutrition(
+    ingredients=["500g chicken breast", "200g rice"],
+    servings=4
+)
+→ { total_kcal: 1020.0, per_serving_kcal: 255.0, total_protein_g: 148.0, ... }
 ```
 
 ---
@@ -115,7 +97,7 @@ cost_recipe_from_mealie("chicken-poke")
 Claude.ai
     │  SSE (MCP protocol)
     ▼
-Traefik (TLS termination + Cloudflare Tunnel)
+Traefik (TLS termination)
     │
     ▼
 morrisons-mcp (FastMCP server :8000)
@@ -124,8 +106,7 @@ morrisons-mcp (FastMCP server :8000)
     │   └── ProductCache    ← SQLite TTL cache
     ├── IngredientParser    ← "500g chicken breast" → structured data
     ├── FuzzyMatcher        ← rapidfuzz token matching
-    ├── NutritionParser     ← BeautifulSoup HTML table parsing
-    └── MealieClient        ← recipe ingredient fetching
+    └── NutritionParser     ← BeautifulSoup HTML table parsing
 ```
 
 ---
@@ -139,7 +120,7 @@ The server caches API responses in SQLite to reduce load on the Morrisons websit
 | Search results | 1 hour (3600s) | `search:{normalised_query}` |
 | Product BOP/nutrition | 24 hours (86400s) | `bop:{retailerProductId}` |
 
-The SQLite database is stored at `CACHE_DB_PATH` (default `/data/cache.db`), backed by a Docker named volume (`morrisons_data`) for persistence across container restarts.
+The SQLite database is stored at `/data/cache.db`, backed by a Docker named volume (`morrisons_data`) for persistence across container restarts.
 
 ---
 
@@ -150,26 +131,19 @@ The SQLite database is stored at `CACHE_DB_PATH` (default `/data/cache.db`), bac
 pip install -e ".[dev]"
 
 # Run tests
-pytest tests/
-
-# Run tests with verbose output
 pytest tests/ -v
-
-# Run a specific test file
-pytest tests/test_ingredient_parser.py -v
 ```
 
 ### Project Structure
 
 ```
 src/morrisons_mcp/
-├── server.py            # FastMCP app + 5 tool definitions
+├── server.py            # FastMCP app + 4 tool definitions
 ├── morrison_client.py   # Morrisons search + BOP API client
 ├── session_manager.py   # Cookie/session acquisition + refresh
 ├── cache.py             # SQLite async cache (aiosqlite)
 ├── ingredient_parser.py # "500g chicken breast" → ParsedIngredient
 ├── fuzzy_matcher.py     # Match ingredients to products (rapidfuzz)
 ├── nutrition_parser.py  # Parse BOP HTML nutrition tables
-├── mealie_client.py     # Mealie recipe API client
 └── models.py            # All Pydantic data models
 ```
