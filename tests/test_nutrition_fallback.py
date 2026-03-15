@@ -5,6 +5,7 @@ import pytest
 import httpx
 
 from morrisons_mcp.nutrition_fallback import (
+    _validate_usda_result,
     get_fallback_nutrition,
     _search_open_food_facts,
     _search_usda_fdc,
@@ -226,3 +227,63 @@ async def test_usda_rejects_egg_whites():
     # Should pick the whole egg (143 kcal), not the white (52 kcal)
     assert result.energy_kcal >= 100
     assert result.fat_g >= 5
+
+
+def test_validation_rejects_egg_whites():
+    from morrisons_mcp.models import NutritionPer100g
+    fake_whites = NutritionPer100g(energy_kcal=52, fat_g=0.2, protein_g=10.9)
+    assert _validate_usda_result("eggs", fake_whites) is False
+
+
+def test_validation_accepts_whole_eggs():
+    from morrisons_mcp.models import NutritionPer100g
+    fake_whole = NutritionPer100g(energy_kcal=143, fat_g=9.5, protein_g=12.6)
+    assert _validate_usda_result("eggs", fake_whole) is True
+
+
+def test_validation_rejects_salt_with_calories():
+    from morrisons_mcp.models import NutritionPer100g
+    fake_butter = NutritionPer100g(energy_kcal=717, fat_g=81.0, protein_g=0.9)
+    assert _validate_usda_result("salt", fake_butter) is False
+
+
+def test_validation_accepts_salt_zero_cal():
+    from morrisons_mcp.models import NutritionPer100g
+    real_salt = NutritionPer100g(energy_kcal=0, fat_g=0, protein_g=0)
+    assert _validate_usda_result("salt", real_salt) is True
+
+
+@pytest.mark.asyncio
+async def test_usda_salt_rejects_butter_result():
+    """USDA result for 'salt' returning butter (717 kcal, 81g fat) should be rejected."""
+    butter_resp = _make_mock_response({
+        "foods": [
+            {
+                "dataType": "SR Legacy",
+                "description": "Butter, salted",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 717, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 0.9, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 81.0, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 643, "unitName": "MG"},
+                ],
+            },
+            {
+                "dataType": "Foundation",
+                "description": "Salt, table",
+                "foodNutrients": [
+                    {"nutrientName": "Energy", "value": 0, "unitName": "KCAL"},
+                    {"nutrientName": "Protein", "value": 0, "unitName": "G"},
+                    {"nutrientName": "Total lipid (fat)", "value": 0, "unitName": "G"},
+                    {"nutrientName": "Sodium, Na", "value": 38758, "unitName": "MG"},
+                ],
+            },
+        ]
+    })
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.post.return_value = butter_resp
+
+    result = await _search_usda_fdc("salt", client)
+    assert result is not None
+    assert result.energy_kcal == 0
+    assert result.fat_g == 0

@@ -19,25 +19,53 @@ _FALLBACK_TTL = 604_800
 
 # USDA search overrides for ambiguous single-word ingredients
 _USDA_SEARCH_OVERRIDES: dict[str, str] = {
-    "eggs": "egg whole raw fresh",
-    "egg": "egg whole raw fresh",
-    "milk": "milk whole",
-    "cream": "cream heavy",
+    "eggs": "egg whole raw",
+    "egg": "egg whole raw",
+    "salt": "salt table",
+    "milk": "milk whole 3.25%",
+    "cream": "cream heavy whipping",
     "butter": "butter salted",
-    "flour": "flour wheat all purpose",
-    "sugar": "sugar white granulated",
-    "rice": "rice white cooked",
-    "chicken": "chicken breast raw",
-    "beef": "beef ground raw",
+    "flour": "wheat flour all purpose",
+    "sugar": "sugar granulated",
+    "rice": "rice white long grain cooked",
+    "chicken": "chicken breast meat raw",
+    "beef": "beef ground 80 lean raw",
+    "oil": "olive oil",
+    "honey": "honey",
+    "garlic": "garlic raw",
+    "onion": "onion raw",
+    "pepper": "spices pepper black",
+    "black pepper": "spices pepper black",
 }
 
-# Sanity check thresholds — reject USDA results that are clearly wrong
-_USDA_SANITY_CHECKS: dict[str, dict] = {
-    "egg": {"min_kcal": 80, "min_fat": 3},
-    "eggs": {"min_kcal": 80, "min_fat": 3},
-    "butter": {"min_kcal": 500, "min_fat": 50},
-    "milk": {"min_kcal": 30, "min_fat": 1},
-}
+
+def _validate_usda_result(query: str, nutrition: NutritionPer100g) -> bool:
+    """Reject USDA results that are clearly the wrong food."""
+    q = query.lower().strip()
+    kcal = nutrition.energy_kcal
+    fat = nutrition.fat_g
+
+    # Eggs should have significant fat (whole eggs ~9-11g, whites <1g)
+    if q in ("eggs", "egg", "egg whole raw") and fat is not None and fat < 3.0:
+        return False
+
+    # Salt should have essentially zero calories
+    if q in ("salt", "table salt", "salt table") and kcal is not None and kcal > 10:
+        return False
+
+    # Pepper (spice) should be <400 kcal
+    if "pepper" in q and kcal is not None and kcal > 500:
+        return False
+
+    # Oil should be very high fat (>80g/100g)
+    if "oil" in q and fat is not None and fat < 50:
+        return False
+
+    # Butter must be high fat
+    if "butter" in q and fat is not None and fat < 50:
+        return False
+
+    return True
 
 
 async def _search_open_food_facts(
@@ -97,8 +125,8 @@ async def _search_usda_fdc(
 ) -> NutritionPer100g | None:
     """Search USDA FoodData Central for nutrition data per 100g."""
     # Use override query for ambiguous single-word ingredients
-    search_query = _USDA_SEARCH_OVERRIDES.get(query.lower().strip(), query)
-    sanity = _USDA_SANITY_CHECKS.get(query.lower().strip())
+    query_lower = query.lower().strip()
+    search_query = _USDA_SEARCH_OVERRIDES.get(query_lower, query)
 
     api_key = os.getenv("USDA_FDC_API_KEY", "DEMO_KEY")
     try:
@@ -139,20 +167,16 @@ async def _search_usda_fdc(
 
         fat_g = _usda_nutrient(nutrients, "Total lipid (fat)", "G")
 
-        # Sanity check: reject results that are clearly wrong
-        if sanity:
-            if energy_kcal < sanity.get("min_kcal", 0):
-                logger.debug(
-                    f"USDA '{food.get('description')}' rejected: "
-                    f"kcal={energy_kcal} < {sanity['min_kcal']}"
-                )
-                continue
-            if fat_g is not None and fat_g < sanity.get("min_fat", 0):
-                logger.debug(
-                    f"USDA '{food.get('description')}' rejected: "
-                    f"fat={fat_g} < {sanity['min_fat']}"
-                )
-                continue
+        # Build a preliminary result to validate
+        preliminary = NutritionPer100g(
+            energy_kcal=energy_kcal, fat_g=fat_g, protein_g=protein,
+        )
+        if not _validate_usda_result(query_lower, preliminary):
+            logger.debug(
+                f"USDA '{food.get('description')}' rejected by validation "
+                f"(kcal={energy_kcal}, fat={fat_g})"
+            )
+            continue
 
         # Sodium in mg → salt in g (salt = sodium × 2.5 / 1000)
         sodium_mg = _usda_nutrient(nutrients, "Sodium, Na", "MG")
