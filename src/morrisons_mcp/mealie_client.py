@@ -78,28 +78,31 @@ class MealieClient:
         logger.info(f"Mealie search '{name_lower}' returned {len(items)} foods")
 
         for item in items:
-            food_name = (item.get("name") or "").lower()
-            aliases = [
-                (a.get("name") or "").lower()
-                for a in (item.get("aliases") or [])
-            ]
-            all_names = [food_name] + aliases
+            food_name = (item.get("name") or "").lower().strip()
             households = item.get("householdsWithIngredientFood") or []
 
-            # Match: exact, substring in either direction, or single-word match
-            matched = any(
-                name_lower == n
-                or name_lower in n
-                or n in name_lower
-                for n in all_names if n
-            )
+            # Exact match on food name — returns immediately (True or False)
+            # so that "onion" does NOT fall through to match "onion powder".
+            if food_name == name_lower:
+                if households:
+                    logger.debug(
+                        f"  Exact name match '{item.get('name')}' "
+                        f"households={households}"
+                    )
+                return bool(households)
 
-            if matched and households:
-                logger.debug(
-                    f"  Matched food '{item.get('name')}' "
-                    f"households={households}"
-                )
-                return True
+            # Exact match on any alias
+            for alias in (item.get("aliases") or []):
+                alias_name = (
+                    (alias.get("name") or "") if isinstance(alias, dict) else str(alias)
+                ).lower().strip()
+                if alias_name == name_lower:
+                    if households:
+                        logger.debug(
+                            f"  Alias match '{alias_name}' on food '{item.get('name')}' "
+                            f"households={households}"
+                        )
+                    return bool(households)
 
         return False
 

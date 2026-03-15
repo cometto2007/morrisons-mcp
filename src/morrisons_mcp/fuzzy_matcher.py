@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 # Minimum composite score (raw 0–110 scale) to consider a match
 MIN_COMPOSITE_SCORE = 40
 
-# Normalisation ceiling: 100 (name) + 10 (category bonus) = 110
+# Normalisation ceiling: 100 (name) + 10 (category bonus) = 110.
+# Multi-word queries can exceed this via the consecutive phrase bonus (+25);
+# the confidence is capped at 1.0, so over-ceiling is fine.
 _SCORE_CEILING = 110.0
 
 # Words ignored when checking "all significant words present" filter
@@ -39,7 +41,9 @@ _SINGLE_CONTAINER_UNITS = frozenset({
 
 # Keywords that suggest processed/non-ingredient products (checked in category AND name)
 _PROCESSED_KEYWORDS = frozenset({
-    "soup", "sauce", "ready meal", "meal kit", "cooking sauce",
+    # "sauce" intentionally omitted — too broad (fish sauce, sriracha, soy sauce are
+    # all legitimate condiment ingredients). "cooking sauce" below handles ready-made sauces.
+    "soup", "ready meal", "meal kit", "cooking sauce",
     "crisp", "snack", "biscuit", "cracker", "cereal",
     "drink", "juice", "smoothie", "dessert", "cake",
     "mix", "paste", "powder", "stock", "seasoning",
@@ -47,6 +51,15 @@ _PROCESSED_KEYWORDS = frozenset({
     "baby food", "pet",
     "home & garden", "kitchen", "utensils",
     "cleaning", "health & beauty",
+    # Ready-meal / convenience food signals
+    "pasta", "noodle", "ready to eat",
+    "mac",       # mac and cheese products
+    "pizza",
+    "pie",       # pies as ready meals (not pie ingredients like pastry)
+    "sandwich",
+    "wrap",
+    "meal",
+    "curry",     # ready-meal curries (not curry paste/powder — those contain "paste"/"powder" already)
 })
 
 # Category keywords that indicate fresh/raw produce
@@ -106,6 +119,27 @@ def _all_query_words_present(query: str, product_name: str) -> bool:
     return all(_stem(word) in product_stems for word in query_words)
 
 
+def _consecutive_word_bonus(query: str, product_name: str) -> int:
+    """
+    Bonus if the multi-word query appears as a consecutive phrase in the
+    product name (i.e. the words are adjacent, not interleaved).
+
+    E.g. "fish sauce" is a substring of "Squid Brand Fish Sauce" → +25, but
+    it is NOT a substring of "Morrisons Fish Pie Sauce" (interrupted by "Pie") → 0.
+
+    Only applied for multi-word queries — for single-word queries the word is
+    trivially present (the all-words filter already guarantees it), so there is
+    no adjacency signal to extract.
+    """
+    query_lower = query.lower().strip()
+    # No adjacency signal to distinguish for single-word queries
+    if " " not in query_lower:
+        return 0
+    if query_lower in product_name.lower():
+        return 25
+    return 0
+
+
 def find_best_match(
     ingredient: ParsedIngredient,
     products: list[ProductResult],
@@ -149,6 +183,12 @@ def find_best_match(
             if query_stem in product_stems:
                 composite += 30
 
+        # Consecutive phrase bonus: +25 if the query appears as an exact
+        # substring of the product name (words are adjacent, not interleaved).
+        # "fish sauce" is in "Squid Brand Fish Sauce" → +25
+        # "fish sauce" is NOT in "Morrisons Fish Pie Sauce" → 0
+        composite += _consecutive_word_bonus(query, product.name)
+
         # Category bonus: +10 if a query word appears as a whole word in the category path
         if product.category_path:
             cat_lower = product.category_path.lower()
@@ -158,14 +198,22 @@ def find_best_match(
             ):
                 composite += 10
 
-        # Processed product penalty: -25 if product name or category contains
-        # processed keywords (soup, mix, sauce, etc.) but the query doesn't
+        # Processed product penalty: applied independently for name and category
+        # so that a product with a bad name AND a bad category accumulates -50
+        # (e.g. "Veetee Mac 'N' Cheese Sriracha" in a Pasta & Noodles category)
+        # while a legitimately-named product in a clean category only loses -25
+        # (e.g. "Flying Goose Sriracha Hot Chilli Sauce" — "sauce" in name).
         query_words_set = set(query_words)
-        check_text = name_lower + " " + (product.category_path or "").lower()
         for kw in _PROCESSED_KEYWORDS:
-            if kw in check_text and kw not in query_words_set:
+            if kw in name_lower and kw not in query_words_set:
                 composite -= 25
                 break
+        if product.category_path:
+            cat_lower_chk = product.category_path.lower()
+            for kw in _PROCESSED_KEYWORDS:
+                if kw in cat_lower_chk and kw not in query_words_set:
+                    composite -= 25
+                    break
 
         # Premium penalty: -15 if product has premium words not in query
         for pw in _PREMIUM_WORDS:

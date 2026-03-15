@@ -343,3 +343,55 @@ def test_butter_single_word_matches():
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
     assert confidence >= 0.4
+
+
+def test_fish_sauce_not_fish_pie_sauce():
+    """'fish sauce' should match fish sauce condiment, not Fish Pie Sauce."""
+    ingredient = ParsedIngredient(
+        original="3 tbsp fish sauce", quantity=3, unit="tbsp",
+        name="fish sauce", search_query="fish sauce",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Morrisons Fish Pie Sauce", price=1.40,
+            pack_size="250g", available=True,
+            category_path="Meat & Fish > Fish & Seafood > Sauces",
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Squid Brand Fish Sauce 725ml", price=2.20,
+            pack_size="725ml", available=True,
+            category_path="World Foods > Asian Food > Far Eastern",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Fish Sauce" in match.name
+    assert "Pie" not in match.name
+
+
+def test_sriracha_not_mac_and_cheese():
+    """'sriracha' should match the actual sriracha sauce, not a mac & cheese ready meal."""
+    ingredient = ParsedIngredient(
+        original="3.5 tbsp sriracha", quantity=3.5, unit="tbsp",
+        name="sriracha", search_query="sriracha",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Veetee Mac 'N' Cheese Head Sriracha 200g", price=1.50,
+            pack_size="200g", available=True,
+            category_path="Food Cupboard > Rice, Pasta, Noodles & Pulses",
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Flying Goose Sriracha Hot Chilli Sauce 455ml", price=3.00,
+            pack_size="455ml", available=True,
+            category_path="World Foods > Asian Food > Far Eastern",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Chilli Sauce" in match.name or "Hot" in match.name
+    assert "Mac" not in match.name

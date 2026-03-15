@@ -106,3 +106,51 @@ async def test_api_error_returns_false():
 
     result = await client.is_pantry_staple("salt")
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_onion_not_pantry_staple():
+    """'onion' with empty householdsWithIngredientFood must NOT match 'onion powder'."""
+    client = MealieClient()
+    client._enabled = True
+    mock_http = AsyncMock(spec=httpx.AsyncClient)
+    mock_http.get.return_value = _mock_foods_response([
+        {
+            "name": "onion",
+            "aliases": [],
+            "householdsWithIngredientFood": [],
+        },
+        {
+            "name": "onion powder",
+            "aliases": [],
+            "householdsWithIngredientFood": ["family"],
+        },
+    ])
+    client._client = mock_http
+
+    result = await client.is_pantry_staple("onion")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_onion_powder_is_pantry_staple():
+    """'onion powder' with non-empty householdsWithIngredientFood should be on_hand."""
+    client = MealieClient()
+    client._enabled = True
+    mock_http = AsyncMock(spec=httpx.AsyncClient)
+    mock_http.get.return_value = _mock_foods_response([
+        {
+            "name": "onion",
+            "aliases": [],
+            "householdsWithIngredientFood": [],
+        },
+        {
+            "name": "onion powder",
+            "aliases": [],
+            "householdsWithIngredientFood": ["family"],
+        },
+    ])
+    client._client = mock_http
+
+    result = await client.is_pantry_staple("onion powder")
+    assert result is True
