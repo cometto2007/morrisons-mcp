@@ -1,6 +1,6 @@
 services:
   morrisons-mcp:
-    build: .
+    image: ghcr.io/cometto2007/morrisons-mcp:latest
     container_name: morrisons-mcp
     restart: unless-stopped
     ports:
