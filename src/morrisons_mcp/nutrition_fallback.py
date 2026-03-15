@@ -257,7 +257,8 @@ async def get_fallback_nutrition(
 
     Results are cached for 7 days using the provided ProductCache.
     """
-    cache_key = f"fallback:{ingredient_name.lower().strip()}"
+    # v2: bumped to invalidate stale pre-fix USDA/OFF results (wrong squash/aubergine data)
+    cache_key = f"fallback_v2:{ingredient_name.lower().strip()}"
 
     if cache:
         cached = await cache.get(cache_key)
