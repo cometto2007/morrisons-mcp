@@ -46,12 +46,14 @@ async def _search_open_food_facts(
         n = product.get("nutriments", {})
         kcal = n.get("energy-kcal_100g")
         protein = n.get("proteins_100g")
-        if kcal is None or protein is None:
-            continue
-
         kj = n.get("energy-kj_100g")
+
+        # Derive kcal from kJ if missing
         if kcal is None and kj is not None:
             kcal = round(kj / 4.184, 1)
+
+        if kcal is None or protein is None:
+            continue
 
         return NutritionPer100g(
             energy_kcal=_to_float(kcal),

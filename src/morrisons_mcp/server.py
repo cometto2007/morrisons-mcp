@@ -13,6 +13,7 @@ from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS
 from .nutrition_fallback import get_fallback_nutrition
 from .weight_estimator import estimate_weight_grams
 from .models import (
+    ParsedIngredient,
     ProductResult,
     ProductDetail,
     IngredientCost,
