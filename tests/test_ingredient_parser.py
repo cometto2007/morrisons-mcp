@@ -115,3 +115,23 @@ def test_pot_container_stripped_from_search():
 def test_to_taste_stripped_from_search():
     result = parse_ingredient("salt and pepper to taste")
     assert "to taste" not in result.search_query
+
+
+def test_mealie_comma_format():
+    result = parse_ingredient("100 g, Chicken Breast Fillet")
+    assert result.quantity == 100
+    assert result.unit == "g"
+    assert "chicken" in result.search_query.lower()
+    assert "breast" in result.search_query.lower()
+
+
+def test_mealie_pot_format():
+    result = parse_ingredient("130 g Pot, Sticky Rice Pot")
+    assert result.quantity == 130
+    assert result.unit == "g"
+    assert "sticky rice" in result.search_query.lower()
+
+
+def test_mealie_spray_format():
+    result = parse_ingredient("3 spray 0.2ml, Sunflower Oil Spray")
+    assert "sunflower oil" in result.search_query.lower()

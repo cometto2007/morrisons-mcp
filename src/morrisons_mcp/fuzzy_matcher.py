@@ -19,6 +19,24 @@ _INSIGNIFICANT_WORDS = frozenset({
     "morrisons", "best", "fresh", "free", "range",
 })
 
+# Premium product words — penalised when the query doesn't ask for them
+_PREMIUM_WORDS = frozenset({
+    "organic", "free range", "free-range", "finest",
+    "luxury", "premium", "the best",
+})
+
+# Multipack patterns in product names or pack sizes
+_MULTIPACK_PATTERNS = [
+    re.compile(r"\d+\s*x\s*\d+", re.IGNORECASE),
+    re.compile(r"\d+\s*pack", re.IGNORECASE),
+    re.compile(r"multipack|multi pack", re.IGNORECASE),
+]
+
+# Container units that imply "single item" when quantity is 1-2
+_SINGLE_CONTAINER_UNITS = frozenset({
+    "tin", "can", "jar", "bottle", "pot", "bag", "box", "tub", "pack",
+})
+
 
 def _significant_words(text: str) -> list[str]:
     """Extract lowercase significant words from text."""
@@ -85,6 +103,24 @@ def find_best_match(
             ):
                 composite += 10
 
+        # Premium penalty: -15 if product has premium words not in query
+        query_lower = query.lower()
+        name_lower = product.name.lower()
+        for pw in _PREMIUM_WORDS:
+            if pw in name_lower and pw not in query_lower:
+                composite -= 15
+                break
+
+        # Multipack penalty: -20 when recipe quantity suggests a single item
+        if (ingredient.quantity is not None
+                and ingredient.quantity <= 2
+                and ingredient.unit in _SINGLE_CONTAINER_UNITS):
+            check_text = name_lower + " " + (product.pack_size or "").lower()
+            for pat in _MULTIPACK_PATTERNS:
+                if pat.search(check_text):
+                    composite -= 20
+                    break
+
         # Availability penalty: -50 if not available
         if not product.available:
             composite -= 50
@@ -93,7 +129,16 @@ def find_best_match(
             f"  '{product.name}': name_score={name_score:.0f}, composite={composite:.0f}"
         )
 
+        # Prefer this product if it has a higher score, or if scores are
+        # within 10 points, prefer the cheaper product (price tiebreaker)
         if composite > best_score:
+            best_score = composite
+            best_product = product
+        elif (best_product is not None
+              and abs(composite - best_score) <= 10
+              and product.price is not None
+              and best_product.price is not None
+              and product.price < best_product.price):
             best_score = composite
             best_product = product
 

@@ -86,3 +86,26 @@ def test_parse_zero_values():
 def test_parse_no_table():
     result = parse_nutrition_html("<p>No nutrition data available</p>")
     assert result is None
+
+
+def test_energy_kj_only():
+    html = """<table><tr><td>Energy</td><td>1456kJ</td></tr></table>"""
+    result = parse_nutrition_html(html)
+    assert result is not None
+    assert result.energy_kj == 1456.0
+    assert result.energy_kcal is not None
+    assert abs(result.energy_kcal - 348.0) < 2  # 1456 / 4.184 ≈ 348
+
+
+def test_energy_combined_format():
+    html = """<table><tr><td>Energy</td><td>1046kJ / 250kcal</td></tr></table>"""
+    result = parse_nutrition_html(html)
+    assert result.energy_kj == 1046.0
+    assert result.energy_kcal == 250.0
+
+
+def test_energy_with_spaces():
+    html = """<table><tr><td>Energy</td><td>1046 kJ / 250 kcal</td></tr></table>"""
+    result = parse_nutrition_html(html)
+    assert result.energy_kj == 1046.0
+    assert result.energy_kcal == 250.0

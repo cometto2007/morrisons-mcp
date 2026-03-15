@@ -156,3 +156,51 @@ def test_all_products_fail_word_filter_returns_none():
     match, confidence = find_best_match(ingredient, products)
     assert match is None
     assert confidence == 0.0
+
+
+def test_prefers_standard_over_organic():
+    ingredient = ParsedIngredient(
+        original="500g chicken breast",
+        quantity=500, unit="g",
+        name="chicken breast",
+        search_query="chicken breast",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Morrisons Organic Chicken Breast Fillets",
+            price=7.82, unit_price="£23.00/kg", available=True,
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Morrisons British Chicken Breast Fillets 1kg",
+            price=6.84, unit_price="£6.84/kg", available=True,
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert match.retailer_product_id == "2"
+
+
+def test_single_tin_prefers_single_not_multipack():
+    ingredient = ParsedIngredient(
+        original="1 tin chopped tomatoes",
+        quantity=1, unit="tin",
+        name="chopped tomatoes",
+        search_query="chopped tomatoes",
+    )
+    products = [
+        ProductResult(
+            product_id="1", retailer_product_id="1",
+            name="Cirio Chopped Tomatoes (4x400g)",
+            price=2.50, pack_size="4 x 400g", available=True,
+        ),
+        ProductResult(
+            product_id="2", retailer_product_id="2",
+            name="Morrisons Chopped Tomatoes 400g",
+            price=0.45, pack_size="400g", available=True,
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert match.retailer_product_id == "2"

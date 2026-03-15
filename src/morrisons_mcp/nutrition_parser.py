@@ -82,6 +82,10 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
             logger.debug("Nutrition table parsed but no recognised nutrient rows found")
             return None
 
+        # Fallback: derive kcal from kJ if only kJ was found
+        if result.get("energy_kcal") is None and result.get("energy_kj") is not None:
+            result["energy_kcal"] = round(result["energy_kj"] / 4.184, 1)
+
         return NutritionPer100g(**result)
 
     except Exception as e:

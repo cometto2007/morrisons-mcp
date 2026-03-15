@@ -28,7 +28,15 @@ SEARCH_STRIP_PHRASES = [
 SEARCH_STRIP_WORDS = {"fresh", "dried"}
 
 # Container words to remove from search queries
-CONTAINER_WORDS = {"pot", "tin", "can", "jar", "bag", "pack", "packet", "spray"}
+CONTAINER_WORDS = {"pot", "tin", "can", "jar", "bag", "pack", "packet", "spray",
+                   "bottle", "bunch", "box", "tub"}
+
+# Container words that appear between unit and comma in Mealie format
+# e.g. "130 g Pot, Sticky Rice Pot" — "Pot" here is a container descriptor
+_CONTAINER_DESCRIPTORS_RE = re.compile(
+    r"^(pot|pack|tin|can|bag|bottle|jar|bunch|box|tub|packet)\b\s*",
+    re.IGNORECASE,
+)
 
 # Simple pantry staples — when the query resolves to one of these,
 # keep only the first significant word.
@@ -153,6 +161,10 @@ def parse_ingredient(raw: str) -> ParsedIngredient:
         if unit_val:
             unit = unit_val
             remainder = remainder[unit_len:].lstrip()
+
+            # Strip container descriptor between unit and comma
+            # e.g. "130 g Pot, Sticky Rice Pot" — consume "Pot" here
+            remainder = _CONTAINER_DESCRIPTORS_RE.sub("", remainder)
 
             # Strip any residual quantity+unit annotation (e.g. "0.2ml" in
             # "3 spray 0.2ml, Sunflower Oil Spray" after extracting "spray")
