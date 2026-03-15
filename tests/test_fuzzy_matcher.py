@@ -158,19 +158,24 @@ def test_all_products_fail_word_filter_returns_none():
     assert confidence == 0.0
 
 
-def test_plural_tolerance_fillet_fillets():
+def test_singular_matches_plural_fillet():
     """'chicken breast fillet' should match 'Chicken Breast Fillets'."""
-    ingredient = _make_ingredient("chicken breast fillet")
+    ingredient = ParsedIngredient(
+        original="100g chicken breast fillet",
+        quantity=100, unit="g",
+        name="chicken breast fillet",
+        search_query="chicken breast fillet",
+    )
     products = [
-        _make_product(
-            "Morrisons British Chicken Breast Fillets 1kg",
-            product_id="1",
-            price=6.84,
+        ProductResult(
+            product_id="1", retailer_product_id="108444711",
+            name="Morrisons British Chicken Breast Fillets 1kg",
+            price=6.84, unit_price="£6.84/kg", available=True,
         ),
     ]
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
-    assert match.product_id == "1"
+    assert match.retailer_product_id == "108444711"
 
 
 def test_plural_tolerance_tomato_tomatoes():

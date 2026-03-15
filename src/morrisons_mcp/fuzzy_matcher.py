@@ -39,11 +39,16 @@ _SINGLE_CONTAINER_UNITS = frozenset({
 
 
 def _stem(word: str) -> str:
-    """Very basic stemming — strip common English suffixes for matching."""
-    w = word.lower()
-    for suffix in ("ies", "es", "s", "ing"):
-        if w.endswith(suffix) and len(w) > len(suffix) + 2:
-            return w[:-len(suffix)]
+    """Strip common plural/verb suffixes for fuzzy word matching."""
+    w = word.lower().strip()
+    if w.endswith("ies") and len(w) > 5:
+        return w[:-3] + "y"
+    if w.endswith("ves") and len(w) > 5:
+        return w[:-3] + "f"
+    if w.endswith("es") and len(w) > 4:
+        return w[:-2]
+    if w.endswith("s") and len(w) > 3:
+        return w[:-1]
     return w
 
 
