@@ -9,6 +9,7 @@ from .cache import ProductCache
 from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match
+from .nutrition_fallback import get_fallback_nutrition
 from .models import (
     ProductResult,
     ProductDetail,
@@ -206,7 +207,22 @@ async def get_recipe_nutrition(
 
             ing_nutrition.matched_product = match.name
             ing_nutrition.pack_size = match.pack_size
-            ing_nutrition.nutrition_per_100g = detail.nutrition_per_100g
+
+            nutrition = detail.nutrition_per_100g
+            nutrition_source = "Morrisons"
+
+            # Fallback if Morrisons has no nutrition data
+            if nutrition is None or nutrition.energy_kcal is None:
+                cache: ProductCache = ctx.lifespan_context["cache"]
+                fallback_nutrition, fallback_source = await get_fallback_nutrition(
+                    parsed.search_query, cache=cache,
+                )
+                if fallback_nutrition:
+                    nutrition = fallback_nutrition
+                    nutrition_source = fallback_source
+
+            ing_nutrition.nutrition_per_100g = nutrition
+            ing_nutrition.nutrition_source = nutrition_source if nutrition else None
 
             weight_g: float | None = None
             if parsed.unit == "kg":
@@ -218,8 +234,8 @@ async def get_recipe_nutrition(
 
             ing_nutrition.estimated_weight_g = weight_g
 
-            if weight_g is not None and detail.nutrition_per_100g:
-                n = detail.nutrition_per_100g
+            if weight_g is not None and nutrition:
+                n = nutrition
                 factor = weight_g / 100.0
 
                 if n.energy_kcal is not None:

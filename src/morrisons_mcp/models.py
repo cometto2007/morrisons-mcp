@@ -98,6 +98,7 @@ class IngredientNutrition(BaseModel):
     matched_product: Optional[str] = None
     pack_size: Optional[str] = None
     nutrition_per_100g: Optional[NutritionPer100g] = None
+    nutrition_source: Optional[str] = Field(None, description="Where nutrition data came from: 'Morrisons', 'Open Food Facts', or 'USDA FoodData Central'")
     estimated_weight_g: Optional[float] = Field(None, description="Estimated weight used from recipe")
     estimated_kcal: Optional[float] = None
     estimated_protein_g: Optional[float] = None
