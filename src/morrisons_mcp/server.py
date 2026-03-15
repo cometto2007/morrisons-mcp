@@ -12,6 +12,22 @@ from .morrison_client import MorrisonClient
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
 
+# Pre-search query rewrites applied BEFORE hitting the Morrisons API.
+# Use this for queries that are known to return wrong product categories
+# (e.g. "green peas" returns only Cofresh snack mixes, never actual peas).
+# These are unconditional — the rewrite always happens regardless of what
+# the API might return.  The synonym fallback below is a second layer for
+# weaker cases where the initial search may or may not succeed.
+SEARCH_QUERY_REWRITES: dict[str, str] = {
+    "green peas": "garden peas",
+    "peas": "garden peas",
+    "spring onion": "salad onion",
+    "low-fat mayo": "light mayonnaise",
+    "low fat mayo": "light mayonnaise",
+    "mayo": "mayonnaise",
+    "tomato paste": "tomato puree",
+}
+
 # Ingredient synonyms for search fallback (extends the fresh-produce synonym table
 # with common shopping-name substitutions and regional spelling variants).
 INGREDIENT_SYNONYMS: dict[str, list[str]] = {
@@ -127,13 +143,28 @@ async def _match_with_synonym_fallback(
     morrison: MorrisonClient,
 ) -> tuple[ProductResult | None, float]:
     """
-    Try to match a parsed ingredient to a product. Applies three fallback
-    strategies in sequence when the initial match is absent or weak:
+    Try to match a parsed ingredient to a product. Applies four strategies:
 
+    0. Pre-search query rewrite (green peas → garden peas, etc.) — applied
+       unconditionally BEFORE the API call for queries known to return wrong
+       product categories from Morrisons.
     1. Fresh-produce synonym table (pumpkin → butternut squash, etc.)
     2. Ingredient synonym table (tomato paste → tomato puree, etc.)
     3. Qualifier stripping (low-fat mayo → mayo → mayonnaise)
     """
+    # 0. Pre-search rewrite: substitute the query before hitting the API
+    query_lower = parsed.search_query.lower()
+    rewritten = SEARCH_QUERY_REWRITES.get(query_lower)
+    if rewritten:
+        logger.debug(f"Query rewrite: '{parsed.search_query}' → '{rewritten}'")
+        parsed = ParsedIngredient(
+            original=parsed.original,
+            quantity=parsed.quantity,
+            unit=parsed.unit,
+            name=rewritten,
+            search_query=rewritten,
+        )
+
     products = await morrison.search(parsed.search_query, max_results=20)
     match, confidence = find_best_match(parsed, products)
 

@@ -114,9 +114,24 @@ def test_ingredient_nutrition_all_optional():
     assert n.estimated_weight_g is None
 
 
+def test_search_query_rewrites_peas():
+    """'green peas' and 'peas' must rewrite to 'garden peas' before the API call
+    because Morrisons returns only Cofresh snack products for those queries."""
+    from morrisons_mcp.server import SEARCH_QUERY_REWRITES
+    assert SEARCH_QUERY_REWRITES.get("green peas") == "garden peas"
+    assert SEARCH_QUERY_REWRITES.get("peas") == "garden peas"
+
+
+def test_search_query_rewrites_common_terms():
+    """Spot-check other known problematic rewrites."""
+    from morrisons_mcp.server import SEARCH_QUERY_REWRITES
+    assert SEARCH_QUERY_REWRITES.get("spring onion") == "salad onion"
+    assert SEARCH_QUERY_REWRITES.get("mayo") == "mayonnaise"
+    assert SEARCH_QUERY_REWRITES.get("tomato paste") == "tomato puree"
+
+
 def test_ingredient_synonyms_peas():
-    """'green peas' and 'peas' must have synonym fallbacks so Morrisons snack-only
-    search results trigger a retry with terms that return real vegetable products."""
+    """'green peas' and 'peas' retain synonym fallback entries as a second layer."""
     from morrisons_mcp.server import INGREDIENT_SYNONYMS
     assert "green peas" in INGREDIENT_SYNONYMS
     assert "peas" in INGREDIENT_SYNONYMS["green peas"]
