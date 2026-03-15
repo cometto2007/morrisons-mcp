@@ -19,7 +19,7 @@ USER mcpuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/sse', timeout=5)" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import socket; s = socket.create_connection(('localhost', 8000), timeout=3); s.close()"
 
 CMD ["python", "-m", "morrisons_mcp.server"]
