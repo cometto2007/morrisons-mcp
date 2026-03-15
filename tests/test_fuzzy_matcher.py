@@ -371,6 +371,27 @@ def test_fish_sauce_not_fish_pie_sauce():
     assert "Pie" not in match.name
 
 
+def test_spring_onion_not_crisps():
+    """'spring onion' should match fresh spring onions, not spring onion flavour crisps."""
+    ingredient = _make_ingredient("spring onion")
+    products = [
+        _make_product(
+            "Golden Wonder Spring Onion Crisps 150g",
+            price=1.00, product_id="1",
+            category="Food Cupboard > Treats & Snacks > Crisps & Savoury Snacks",
+        ),
+        _make_product(
+            "Morrisons Spring Onions 100g",
+            price=0.65, product_id="2",
+            category="Fruit, Veg & Flowers > Fresh Vegetables",
+        ),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert "Crisps" not in match.name
+    assert match.product_id == "2"
+
+
 def test_green_peas_not_snack_mix():
     """'green peas' should match frozen/fresh peas, not a snack mix in Treats & Snacks."""
     ingredient = ParsedIngredient(

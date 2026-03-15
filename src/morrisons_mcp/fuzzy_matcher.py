@@ -66,6 +66,27 @@ _PROCESSED_KEYWORDS = frozenset({
     "biscuits", "cookies",
 })
 
+# Hard-exclusion category keywords for products that should never match a recipe
+# ingredient query.  A bag of crisps / box of sweets is never a valid ingredient
+# match regardless of how close the name similarity is.
+# Each keyword that fires adds -50 to the composite (on top of the standard -25
+# from _PROCESSED_KEYWORDS), driving these products well below MIN_COMPOSITE_SCORE.
+# Include both single words AND common multi-word Morrisons category fragments so
+# that the real API category paths are caught even if the exact wording varies.
+_HARD_EXCLUSION_CATEGORY_KEYWORDS = frozenset({
+    # Single-word anchors (match anywhere in the category path)
+    "treats", "snacks", "crisps", "chips", "confectionery",
+    "chocolate", "sweets", "biscuits", "cookies",
+    # Common multi-word Morrisons fragments
+    "treats & snacks", "crisps & snacks", "crisps & savoury snacks",
+    "savoury snacks", "sharing bags", "multipacks",
+    # Nuts/seeds aisle (Cofresh products often land here)
+    "nuts, seeds & dried fruit",
+    # Popcorn / sweet snacks
+    "popcorn",
+})
+
+
 # Category keywords that indicate fresh/raw produce
 _FRESH_CATEGORY_KEYWORDS = frozenset({
     "veg", "fruit", "meat", "fish", "poultry", "dairy",
@@ -155,11 +176,15 @@ def _consecutive_word_bonus(query: str, product_name: str) -> int:
         return 0
 
     name_lower = product_name.lower()
-    # Phrase must be delimited by whitespace/punctuation on both sides
+    # Phrase must be delimited by whitespace/punctuation on both sides.
+    # The trailing `s?` tolerates a single plural suffix so that
+    # "spring onion" matches "spring onions" and "chicken fillet" matches
+    # "chicken fillets" — otherwise the correct (plural) product name loses
+    # the bonus to a snack/flavour product that uses the singular form.
     pattern = (
         r'(?:^|[\s&,/])\s*'
         + re.escape(query_lower)
-        + r'(?=\s|[,/]|$|\d)'
+        + r's?(?=\s|[,/]|$|\d)'
     )
     m = re.search(pattern, name_lower)
     if not m:
@@ -240,13 +265,30 @@ def find_best_match(
         query_words_set = set(query_words)
         for kw in _PROCESSED_KEYWORDS:
             if kw in name_lower and kw not in query_words_set:
+                logger.debug(f"  Name penalty -25: keyword '{kw}' in '{product.name}'")
                 composite -= 25
                 break
         if product.category_path:
             cat_lower_chk = product.category_path.lower()
             for kw in _PROCESSED_KEYWORDS:
                 if kw in cat_lower_chk and kw not in query_words_set:
+                    logger.debug(
+                        f"  Category penalty -25: keyword '{kw}' "
+                        f"in '{product.category_path}'"
+                    )
                     composite -= 25
+                    break
+            # Hard-exclusion: snack/confectionery categories add an extra -50 on top,
+            # ensuring they land far below MIN_COMPOSITE_SCORE even when the phrase
+            # bonus fires (+25).  The standard -25 alone is cancelled by +25 and leaves
+            # the snack product tied with fresh veg — this makes it decisive.
+            for kw in _HARD_EXCLUSION_CATEGORY_KEYWORDS:
+                if kw in cat_lower_chk and kw not in query_words_set:
+                    logger.debug(
+                        f"  Hard-exclusion penalty -50: keyword '{kw}' "
+                        f"in '{product.category_path}'"
+                    )
+                    composite -= 50
                     break
 
         # Premium penalty: -15 if product has premium words not in query
