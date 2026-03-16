@@ -31,6 +31,7 @@ SEARCH_QUERY_REWRITES: dict[str, str] = {
     "sun-dried tomato": "sundried tomatoes",
     "sun dried tomato": "sundried tomatoes",
     "lasagne pasta": "lasagne sheets",
+    "canned chickpeas": "tinned chickpeas",
 }
 
 # Ingredient synonyms for search fallback (extends the fresh-produce synonym table
