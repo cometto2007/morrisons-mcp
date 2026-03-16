@@ -441,7 +441,7 @@ async def get_recipe_nutrition(
             ing_nutrition.nutrition_per_100g = nutrition
             ing_nutrition.nutrition_source = nutrition_source if nutrition else None
 
-            weight_g = estimate_weight_grams(parsed)
+            weight_g = estimate_weight_grams(parsed, matched_product=match)
             ing_nutrition.estimated_weight_g = weight_g
 
             if weight_g is not None and nutrition:

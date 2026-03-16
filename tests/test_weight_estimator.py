@@ -1,5 +1,5 @@
 from morrisons_mcp.weight_estimator import estimate_weight_grams
-from morrisons_mcp.models import ParsedIngredient
+from morrisons_mcp.models import ParsedIngredient, ProductResult
 
 
 def _make(original, quantity, unit, name, query=None):
@@ -120,3 +120,37 @@ def test_bell_pepper_weight():
     """1 bell pepper ≈ 160g."""
     w = estimate_weight_grams(_make("1 bell pepper", 1, None, "bell pepper"))
     assert w == 160
+
+
+def _make_product(name: str, pack_size: str | None = None) -> ProductResult:
+    return ProductResult(
+        product_id="1", retailer_product_id="1",
+        name=name, price=1.0, pack_size=pack_size,
+    )
+
+
+def test_can_uses_pack_size_drained_weight():
+    """2 cans chickpeas × 240g drained (from pack_size) = 480g, not 800g gross."""
+    ing = _make("2 can chickpeas", 2, "can", "chickpeas")
+    product = _make_product("Morrisons Chickpeas In Water 400g", pack_size="240g")
+    assert estimate_weight_grams(ing, matched_product=product) == 480.0
+
+
+def test_can_falls_back_to_400g_without_pack_size():
+    """When pack_size is absent, 1 can = 400g (existing default)."""
+    ing = _make("1 can tomatoes", 1, "can", "tomatoes")
+    assert estimate_weight_grams(ing, matched_product=None) == 400.0
+
+
+def test_can_falls_back_when_pack_size_not_grams():
+    """When pack_size is e.g. '6 pack', cannot parse grams → use 400g default."""
+    ing = _make("1 can beans", 1, "can", "beans")
+    product = _make_product("Morrisons Baked Beans 4 Pack", pack_size="4 pack")
+    assert estimate_weight_grams(ing, matched_product=product) == 400.0
+
+
+def test_tin_uses_pack_size_drained_weight():
+    """tin unit also uses pack_size when available."""
+    ing = _make("1 tin lentils", 1, "tin", "lentils")
+    product = _make_product("Morrisons Green Lentils In Water 400g", pack_size="235g")
+    assert estimate_weight_grams(ing, matched_product=product) == 235.0

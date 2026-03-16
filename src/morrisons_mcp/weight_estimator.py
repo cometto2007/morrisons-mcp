@@ -1,4 +1,6 @@
-from .models import ParsedIngredient
+import re
+
+from .models import ParsedIngredient, ProductResult
 
 # Approximate weight in grams for common cooking units
 UNIT_TO_GRAMS: dict[str, float] = {
@@ -70,8 +72,22 @@ _INGREDIENT_EACH_GRAMS: dict[str, float] = {
 }
 
 
-def estimate_weight_grams(parsed: ParsedIngredient) -> float | None:
-    """Estimate the weight in grams from the parsed ingredient."""
+def _parse_grams_from_pack_size(pack_size: str) -> float | None:
+    """Extract a gram value from a pack_size string like '240g' or '240 g'."""
+    m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*g\b", pack_size.strip(), re.IGNORECASE)
+    return float(m.group(1)) if m else None
+
+
+def estimate_weight_grams(
+    parsed: ParsedIngredient,
+    matched_product: ProductResult | None = None,
+) -> float | None:
+    """Estimate the weight in grams from the parsed ingredient.
+
+    When unit is 'can' or 'tin' and the matched product has a gram pack_size,
+    that value is used as the per-can weight (Morrisons lists drained weight
+    as pack_size for tinned pulses, e.g. 'Chickpeas In Water (400g)' → pack_size '240g').
+    """
     quantity = parsed.quantity
     if quantity is None:
         return None
@@ -103,6 +119,13 @@ def estimate_weight_grams(parsed: ParsedIngredient) -> float | None:
             if ingredient_key in name_lower:
                 return quantity * grams_each
         return None
+
+    # Can/tin: prefer the matched product's pack_size (drained weight) over
+    # the generic 400g fallback.
+    if unit in ("can", "tin") and matched_product and matched_product.pack_size:
+        per_can = _parse_grams_from_pack_size(matched_product.pack_size)
+        if per_can is not None:
+            return quantity * per_can
 
     # All other units from the generic table
     if unit in UNIT_TO_GRAMS:
