@@ -132,6 +132,7 @@ def test_search_query_rewrites_common_terms():
     assert SEARCH_QUERY_REWRITES.get("sun-dried tomato") == "sundried tomatoes"
     assert SEARCH_QUERY_REWRITES.get("sun dried tomato") == "sundried tomatoes"
     assert SEARCH_QUERY_REWRITES.get("lasagne pasta") == "lasagne sheets"
+    assert SEARCH_QUERY_REWRITES.get("udon cooked") == "amoy udon noodles"
 
 
 def test_ingredient_synonyms_peas():

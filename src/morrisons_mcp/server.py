@@ -27,6 +27,7 @@ SEARCH_QUERY_REWRITES: dict[str, str] = {
     "mayo": "mayonnaise",
     "tomato paste": "tomato puree",
     "udon": "udon noodles",
+    "udon cooked": "amoy udon noodles",
     "sun-dried tomato": "sundried tomatoes",
     "sun dried tomato": "sundried tomatoes",
     "lasagne pasta": "lasagne sheets",
