@@ -41,7 +41,7 @@ def test_tbsp_generic_weight():
 def test_whole_eggs_weight():
     w = estimate_weight_grams(_make("6 eggs", 6, None, "eggs"))
     assert w is not None
-    assert 300 <= w <= 400  # 6 x 60g = 360g
+    assert 240 <= w <= 300  # 6 x 44g = 264g (UK medium egg without shell)
 
 
 def test_pinch_salt():

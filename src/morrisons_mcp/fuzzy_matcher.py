@@ -24,7 +24,7 @@ _INSIGNIFICANT_WORDS = frozenset({
 # Premium product words — penalised when the query doesn't ask for them
 _PREMIUM_WORDS = frozenset({
     "organic", "free range", "free-range", "finest",
-    "luxury", "premium", "the best",
+    "luxury", "premium", "the best", "honey",
 })
 
 # Multipack patterns in product names or pack sizes

@@ -47,8 +47,8 @@ _INGREDIENT_TBSP_GRAMS: dict[str, float] = {
 
 # Ingredient-specific grams-per-unit for countable items (no unit or "whole")
 _INGREDIENT_EACH_GRAMS: dict[str, float] = {
-    "egg": 60,
-    "eggs": 60,
+    "egg": 44,
+    "eggs": 44,
     "avocado": 150,
     "onion": 150,
     "potato": 200,

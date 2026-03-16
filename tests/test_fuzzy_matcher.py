@@ -579,3 +579,15 @@ def test_fish_sauce_not_penalised_by_compound_indicator():
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
     assert confidence > 0.5  # compound indicator must not reduce confidence for this query
+
+
+def test_sriracha_prefers_plain_over_honey_sriracha():
+    """'sriracha' query: products with 'honey' in name get -15 premium penalty."""
+    ingredient = _make_ingredient("sriracha")
+    products = [
+        _make_product("Leon Hot Honey Sriracha 250ml", price=3.00, product_id="1"),
+        _make_product("Thai Dragon Sriracha Sauce 200ml", price=2.50, product_id="2"),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert match.product_id == "2"  # plain sriracha, not honey variant
