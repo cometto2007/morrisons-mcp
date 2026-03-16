@@ -218,3 +218,21 @@ def test_sheet_unit_parsed():
     assert result.quantity == 12
     assert result.unit == "sheet"
     assert "lasagne" in result.name.lower()
+
+
+def test_canned_substituted_to_tinned():
+    """'480 g canned chickpeas' → search_query should use 'tinned', not 'canned'."""
+    result = parse_ingredient("480 g canned chickpeas")
+    assert result.search_query == "tinned chickpeas"
+
+
+def test_canned_tomatoes_substituted():
+    """'400 g canned tomatoes' → search_query = 'tinned tomatoes'."""
+    result = parse_ingredient("400 g canned tomatoes")
+    assert result.search_query == "tinned tomatoes"
+
+
+def test_canned_tuna_substituted():
+    """'200 g canned tuna' → search_query = 'tinned tuna'."""
+    result = parse_ingredient("200 g canned tuna")
+    assert result.search_query == "tinned tuna"

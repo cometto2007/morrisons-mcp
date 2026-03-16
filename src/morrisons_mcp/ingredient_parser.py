@@ -35,6 +35,15 @@ SEARCH_STRIP_WORDS = {
 # Words to strip only if removing them leaves at least one other word
 _CONDITIONAL_STRIP_WORDS = {"whole", "finely", "roughly"}
 
+# Word substitutions applied to the search query: replaces the key with the value.
+# Use this for regional synonyms where Morrisons uses a different term.
+# "canned" → "tinned": Morrisons uses British "tinned" terminology, not "canned".
+# Also ensures that when KNOWN_UNITS parses "can"/"tin" as the unit and the product
+# form word is lost, it gets restored at query build time.
+_SEARCH_WORD_SUBSTITUTIONS: dict[str, str] = {
+    "canned": "tinned",
+}
+
 # Container words to remove from search queries
 CONTAINER_WORDS = {"pot", "tin", "can", "jar", "bag", "pack", "packet", "spray",
                    "bottle", "bunch", "box", "tub"}
@@ -128,6 +137,8 @@ def _build_search_query(name: str) -> str:
     words = query.split()
     words = [re.sub(r"[^a-z]", "", w) for w in words]  # strip commas, etc.
     words = [w for w in words if w and w not in SEARCH_STRIP_WORDS and w not in CONTAINER_WORDS]
+    # Apply word substitutions (e.g. "canned" → "tinned" for Morrisons terminology)
+    words = [_SEARCH_WORD_SUBSTITUTIONS.get(w, w) for w in words]
 
     # Conditionally strip words like "whole" only if other words remain
     remaining = [w for w in words if w not in _CONDITIONAL_STRIP_WORDS]
