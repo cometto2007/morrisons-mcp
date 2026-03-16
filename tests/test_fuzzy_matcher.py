@@ -591,3 +591,38 @@ def test_sriracha_prefers_plain_over_honey_sriracha():
     match, confidence = find_best_match(ingredient, products)
     assert match is not None
     assert match.product_id == "2"  # plain sriracha, not honey variant
+
+
+def test_canned_chickpeas_matches_in_water_product():
+    """'canned chickpeas' must match 'Morrisons Chickpeas In Water' — 'canned' is
+    a product-form qualifier and should not be required to appear in the product name."""
+    ingredient = _make_ingredient("canned chickpeas")
+    products = [
+        _make_product("Morrisons Chickpeas In Water 400g", category="Tins, Beans & Pulses"),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4
+
+
+def test_frozen_peas_matches_without_frozen_in_name():
+    """'frozen peas' must match 'Birds Eye Garden Peas' even though 'frozen' is not
+    in the product name."""
+    ingredient = _make_ingredient("frozen peas")
+    products = [
+        _make_product("Birds Eye Garden Peas 375g", category="Frozen Veg"),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4
+
+
+def test_dried_lentils_matches_red_lentils():
+    """'dried lentils' should match 'Morrisons Red Lentils' — 'dried' is a qualifier."""
+    ingredient = _make_ingredient("dried lentils")
+    products = [
+        _make_product("Morrisons Red Lentils 500g", category="Pulses"),
+    ]
+    match, confidence = find_best_match(ingredient, products)
+    assert match is not None
+    assert confidence >= 0.4

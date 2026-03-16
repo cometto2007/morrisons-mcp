@@ -87,6 +87,18 @@ _HARD_EXCLUSION_CATEGORY_KEYWORDS = frozenset({
 })
 
 
+# Product-form qualifier words: describe how the product is prepared or preserved.
+# These words are sent to the Morrisons search API (to return the right product
+# category) but are EXCLUDED from fuzzy name matching — Morrisons names these
+# products "In Water", "In Brine", "Frozen", etc., not "Canned" or "Tinned".
+# Excluding them from the word-presence gate and base score prevents false
+# rejections like "canned chickpeas" → "Morrisons Chickpeas In Water" being
+# discarded because "canned" doesn't appear in the product name.
+PRODUCT_FORM_QUALIFIERS = frozenset({
+    "canned", "tinned", "frozen", "fresh", "dried", "dry",
+    "raw", "cooked", "smoked", "pickled", "jarred",
+})
+
 # Category keywords that indicate fresh/raw produce
 _FRESH_CATEGORY_KEYWORDS = frozenset({
     "veg", "fruit", "meat", "fish", "poultry", "dairy",
@@ -257,36 +269,46 @@ def find_best_match(
         return None, 0.0
 
     query = ingredient.search_query
+    # Strip product-form qualifiers for scoring purposes only (not for the API search).
+    # "canned chickpeas" → score against "chickpeas"; "frozen peas" → score against "peas".
+    # Morrisons encodes these as "In Water", "Frozen", etc. in product names so matching
+    # the qualifier word against the product name would always fail.
+    query_words_raw = query.lower().split()
+    scoring_query = " ".join(w for w in query_words_raw if w not in PRODUCT_FORM_QUALIFIERS).strip()
+    if not scoring_query:
+        scoring_query = query  # fallback: if ALL words are qualifiers, keep original
+
     best_product: ProductResult | None = None
     best_score: float = 0.0
 
     for product in products:
-        # Require all significant query words to appear as whole words in the product name
-        if not _all_query_words_present(query, product.name):
+        # Require all significant query words to appear as whole words in the product name.
+        # Use scoring_query (qualifiers stripped) so "canned chickpeas" doesn't require
+        # "canned" to appear in "Morrisons Chickpeas In Water".
+        if not _all_query_words_present(scoring_query, product.name):
             continue
 
-        # Base name score (0–100)
+        # Base name score (0–100) — also uses scoring_query so qualifier words
+        # don't dilute the ratio against product names that use different terminology.
         name_lower = product.name.lower()
-        query_lower = query.lower()
-        name_score = fuzz.token_sort_ratio(query, name_lower)
+        query_lower = scoring_query.lower()
+        name_score = fuzz.token_sort_ratio(scoring_query, name_lower)
         composite = float(name_score)
 
-        # Single-word exact match boost: +30 if the query is a single word
+        # Single-word exact match boost: +30 if the scoring query is a single word
         # and it appears (stemmed) in the product name. This helps staple
         # ingredients like "eggs", "milk", "butter" which get very low
         # token_sort_ratio scores against long product names.
-        query_words = _significant_words(query)
+        query_words = _significant_words(scoring_query)
         if len(query_words) == 1:
             query_stem = _stem(query_words[0])
             product_stems = {_stem(w) for w in _significant_words(product.name)}
             if query_stem in product_stems:
                 composite += 30
 
-        # Consecutive phrase bonus: +25 if the query appears as an exact
+        # Consecutive phrase bonus: +25 if the scoring query appears as an exact
         # substring of the product name (words are adjacent, not interleaved).
-        # "fish sauce" is in "Squid Brand Fish Sauce" → +25
-        # "fish sauce" is NOT in "Morrisons Fish Pie Sauce" → 0
-        composite += _consecutive_word_bonus(query, product.name)
+        composite += _consecutive_word_bonus(scoring_query, product.name)
 
         # Category bonus: +10 if a query word appears as a whole word in the category path
         if product.category_path:
