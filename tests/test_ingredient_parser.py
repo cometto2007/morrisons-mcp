@@ -220,19 +220,19 @@ def test_sheet_unit_parsed():
     assert "lasagne" in result.name.lower()
 
 
-def test_canned_substituted_to_tinned():
-    """'480 g canned chickpeas' → search_query should use 'tinned', not 'canned'."""
+def test_canned_preserved_in_search_query():
+    """'480 g canned chickpeas' → search_query must keep 'canned' (not stripped)."""
     result = parse_ingredient("480 g canned chickpeas")
-    assert result.search_query == "tinned chickpeas"
+    assert result.search_query == "canned chickpeas"
 
 
-def test_canned_tomatoes_substituted():
-    """'400 g canned tomatoes' → search_query = 'tinned tomatoes'."""
+def test_canned_tomatoes_preserved():
+    """'400 g canned tomatoes' → search_query = 'canned tomatoes' (not stripped)."""
     result = parse_ingredient("400 g canned tomatoes")
-    assert result.search_query == "tinned tomatoes"
+    assert result.search_query == "canned tomatoes"
 
 
-def test_canned_tuna_substituted():
-    """'200 g canned tuna' → search_query = 'tinned tuna'."""
+def test_canned_tuna_preserved():
+    """'200 g canned tuna' → search_query = 'canned tuna' (not stripped)."""
     result = parse_ingredient("200 g canned tuna")
-    assert result.search_query == "tinned tuna"
+    assert result.search_query == "canned tuna"

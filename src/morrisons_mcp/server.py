@@ -159,16 +159,17 @@ async def _match_with_synonym_fallback(
     """
     # 0a. If the unit is "can" or "tin", the Mealie format "1 can, Chickpeas" will
     # have parsed the container as the unit, losing the form descriptor.
-    # Restore it by prepending "tinned" to the search query.
-    if parsed.unit in ("can", "tin") and not parsed.search_query.lower().startswith("tinned"):
-        tinned_query = f"tinned {parsed.search_query}"
-        logger.debug(f"Container unit '{parsed.unit}' → prepending 'tinned': '{tinned_query}'")
+    # Restore it by prepending "canned" to the search query (Morrisons responds
+    # better to "canned chickpeas" than "tinned chickpeas" in practice).
+    if parsed.unit in ("can", "tin") and not parsed.search_query.lower().startswith("canned"):
+        canned_query = f"canned {parsed.search_query}"
+        logger.debug(f"Container unit '{parsed.unit}' → prepending 'canned': '{canned_query}'")
         parsed = ParsedIngredient(
             original=parsed.original,
             quantity=parsed.quantity,
             unit=parsed.unit,
             name=parsed.name,
-            search_query=tinned_query,
+            search_query=canned_query,
         )
 
     # 0b. Pre-search rewrite: substitute the query before hitting the API
