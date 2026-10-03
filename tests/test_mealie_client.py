@@ -154,3 +154,13 @@ async def test_onion_powder_is_pantry_staple():
 
     result = await client.is_pantry_staple("onion powder")
     assert result is True
+
+
+async def test_pantry_check_off_when_mealie_env_unset(monkeypatch):
+    """With no MEALIE_* env, the check is disabled and never touches the network."""
+    monkeypatch.delenv("MEALIE_URL", raising=False)
+    monkeypatch.delenv("MEALIE_API_KEY", raising=False)
+    client = MealieClient()
+    assert client._enabled is False
+    assert await client.is_pantry_staple("salt") is False
+    assert client._client is None

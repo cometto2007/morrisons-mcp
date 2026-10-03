@@ -8,7 +8,7 @@ from fastmcp import FastMCP, Context
 
 from .cache import ProductCache
 from .mealie_client import MealieClient
-from .morrison_client import MorrisonClient
+from .morrison_client import MorrisonClient, ProductNotFoundError
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
 
@@ -275,7 +275,15 @@ async def get_product_detail(retailer_product_id: str, ctx: Context) -> ProductD
     """
     Get full product detail including nutrition from Morrisons.
     Uses the retailerProductId from search results (numeric string like "108444543").
-    Returns nutrition per 100g (kcal, protein, fat, carbs, etc.), origin, storage, and cooking info.
+
+    Nutrition comes only from the label's per-100g or per-100ml column;
+    `nutrition_per_100g.basis` says which ("100g" or "100ml"). If the label has
+    no per-100 column, `nutrition_per_100g` is null. Also returns the raw
+    `pack_size`, a parsed `net_quantity` {value, unit} in g or ml, price,
+    origin, storage and cooking info.
+
+    If Morrisons no longer has the product, returns `found: false` with the
+    other fields empty.
 
     Args:
         retailer_product_id: The numeric retailer product ID from search results
@@ -283,6 +291,8 @@ async def get_product_detail(retailer_product_id: str, ctx: Context) -> ProductD
     morrison: MorrisonClient = ctx.lifespan_context["morrison"]
     try:
         return await morrison.get_product_detail(retailer_product_id)
+    except ProductNotFoundError:
+        return ProductDetail(retailer_product_id=retailer_product_id, found=False)
     except Exception as e:
         logger.error(f"get_product_detail failed for {retailer_product_id}: {e}")
         raise
@@ -489,9 +499,19 @@ async def get_recipe_nutrition(
 # Entry point
 # ---------------------------------------------------------------------------
 
+MCP_PATH = "/mcp"
+
+
+def create_http_app():
+    """Streamable HTTP app serving MCP at /mcp.
+
+    Stateless: every request is self-contained, so nothing breaks when a
+    client idles or the server restarts.
+    """
+    return mcp.http_app(path=MCP_PATH, stateless_http=True)
+
+
 if __name__ == "__main__":
-    import asyncio
+    import uvicorn
     _configure_logging()
-    asyncio.run(
-        mcp.run_async(transport="sse", host="0.0.0.0", port=8000)
-    )
+    uvicorn.run(create_http_app(), host="0.0.0.0", port=8000)

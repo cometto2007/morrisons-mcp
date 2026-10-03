@@ -4,8 +4,8 @@ import re
 
 from .session_manager import SessionManager
 from .cache import ProductCache
-from .nutrition_parser import parse_nutrition_html
-from .models import ProductResult, ProductDetail, Promotion, NutritionPer100g
+from .nutrition_parser import parse_net_quantity, parse_nutrition_html
+from .models import ProductResult, ProductDetail, Promotion
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,19 @@ BOP_URL = "https://groceries.morrisons.com/api/webproductpagews/v5/products/bop"
 
 _SEARCH_TTL = 3600    # 1 hour
 _BOP_TTL = 86400      # 24 hours
+# Bump when the cached ProductDetail shape or parsing rules change, so stale
+# entries (e.g. per-serving figures, "Unknown" products) are not served.
+_BOP_CACHE_PREFIX = "bop_v2:"
+# The BOP field holding the nutrition table.
+_NUTRITION_FIELD = "nutritionalData"
+
+
+class ProductNotFoundError(LookupError):
+    """Morrisons has no product for this retailerProductId (gone or never existed)."""
+
+    def __init__(self, retailer_product_id: str) -> None:
+        super().__init__(f"Morrisons has no product with retailerProductId {retailer_product_id}")
+        self.retailer_product_id = retailer_product_id
 
 
 def _parse_price(price_data) -> float:
@@ -167,15 +180,27 @@ class MorrisonClient:
         return products[:max_results]
 
     async def get_product_detail(self, retailer_product_id: str) -> ProductDetail:
-        """Get full product detail including nutrition from BOP endpoint."""
-        cache_key = f"bop:{retailer_product_id}"
+        """Get full product detail including nutrition from the BOP endpoint.
+
+        Raises ProductNotFoundError when Morrisons has no such product (404,
+        empty payload, or a payload for a different product). Not-found
+        results are never cached.
+        """
+        cache_key = f"{_BOP_CACHE_PREFIX}{retailer_product_id}"
         cached = await self.cache.get(cache_key)
         if cached is not None:
             return ProductDetail.model_validate(cached)
 
         params = {"retailerProductId": retailer_product_id}
         resp = await self.session.request("GET", BOP_URL, params=params)
-        resp.raise_for_status()
+        if resp.status_code == 404:
+            logger.info(f"BOP 404 for product {retailer_product_id}: not found")
+            raise ProductNotFoundError(retailer_product_id)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Morrisons returned HTTP {resp.status_code} for product {retailer_product_id}. "
+                "Try again shortly."
+            )
 
         try:
             data = resp.json()
@@ -189,23 +214,24 @@ class MorrisonClient:
             ) from exc
 
         # BOP wraps the core product under 'product'
-        prod = data.get("product") or {}
+        prod = (data.get("product") if isinstance(data, dict) else None) or {}
+        returned_id = str(prod.get("retailerProductId") or "")
+        if not prod.get("name") or (returned_id and returned_id != str(retailer_product_id)):
+            logger.info(
+                f"BOP for {retailer_product_id} returned no matching product "
+                f"(got id={returned_id or None!r}): not found"
+            )
+            raise ProductNotFoundError(retailer_product_id)
 
         # BOP fields use 'title' / 'content' (not 'name' / 'value')
         fields: dict[str, str] = {}
-        for field in data.get("bopData", {}).get("fields", []):
+        for field in (data.get("bopData") or {}).get("fields", []):
             title = field.get("title") or field.get("name") or ""
             content = field.get("content") or field.get("value") or ""
             if title:
                 fields[title] = content
 
-        # Parse nutrition HTML (look for a field whose content contains a <table>)
-        nutrition: NutritionPer100g | None = None
-        for content in fields.values():
-            if "<table" in content.lower():
-                nutrition = parse_nutrition_html(content)
-                if nutrition:
-                    break
+        nutrition = parse_nutrition_html(fields.get(_NUTRITION_FIELD))
 
         # Parse promotions from bopPromotions
         promos = []
@@ -217,12 +243,14 @@ class MorrisonClient:
         # Parse price from the nested product object
         price_raw = prod.get("price")
         price = _parse_price(price_raw) if price_raw else None
+        pack_size = prod.get("packSizeDescription")
 
         detail = ProductDetail(
             retailer_product_id=retailer_product_id,
-            name=prod.get("name", "Unknown"),
+            name=prod["name"],
             brand=prod.get("brand"),
-            pack_size=prod.get("packSizeDescription"),
+            pack_size=pack_size,
+            net_quantity=parse_net_quantity(pack_size),
             price=price,
             nutrition_per_100g=nutrition,
             country_of_origin=fields.get("Country of Origin") or fields.get("countryOfOrigin"),
