@@ -11,6 +11,7 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `search_products` | Search Morrisons products by keyword. Returns price, unit price, promotions, pack size, category. |
 | `get_product_detail` | Full product detail: per-100 g/ml nutrition from the label, raw and parsed pack size, price, origin, storage. Returns `found: false` for a gone product. |
 | `cost_recipe` | Cost a recipe from a list of ingredient strings. Returns total cost + per-ingredient breakdown. |
+| `pick_products` | Product cards per ingredient (photo, name, size, price) rendered in the chat as an [MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart); the user taps the product they buy and Submit posts the picks back as their message. Clients without MCP Apps get the same candidates as data. |
 
 ### `get_product_detail` response
 
@@ -28,6 +29,10 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `country_of_origin`, `storage`, `cooking_guidelines`, `features`, `servings_info`, `promotions` | Label text where present. |
 
 Morrisons' product payload carries no GTIN/EAN, so none is returned.
+
+### `pick_products` and the picker UI
+
+`pick_products(ingredients, max_results=8)` takes food names without quantities (at most 15; 1–12 candidates each) and returns `{ ingredients: [{ ingredient, query, results: [ProductResult] }] }`. Every `ProductResult` carries `url` (`https://groceries.morrisons.com/products/<retailerProductId>`, which Morrisons redirects to the slug URL). The tool declares `_meta.ui.resourceUri = ui://morrisons/picker`; that resource is the picker page (`picker_html.py`, MIME `text/html;profile=mcp-app`). It loads the MCP Apps browser client from unpkg and product images from groceries.morrisons.com, both declared in its CSP. Submit calls `sendMessage` with one line per ingredient: `- <ingredient> → <name> (id <retailerProductId>, <url>)`, or `none of these` / `not chosen`. A failed search gives that ingredient an empty `results` list rather than failing the call.
 
 ---
 
