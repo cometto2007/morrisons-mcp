@@ -5,12 +5,15 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastmcp import FastMCP, Context
+from fastmcp.exceptions import ToolError
+from fastmcp.apps import AppConfig, ResourceCSP
 
 from .cache import ProductCache
 from .mealie_client import MealieClient
 from .morrison_client import MorrisonClient, ProductNotFoundError
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
+from .picker_html import EXT_APPS_ORIGIN, PICKER_HTML
 
 # Pre-search query rewrites applied BEFORE hitting the Morrisons API.
 # Use this for queries that are known to return wrong product categories
@@ -73,6 +76,8 @@ from .models import (
     ProductDetail,
     IngredientCost,
     RecipeCostResult,
+    IngredientChoices,
+    ProductPicks,
 )
 
 
@@ -385,6 +390,67 @@ async def cost_recipe(
         ),
         unmatched_count=unmatched,
     )
+
+
+# ---------------------------------------------------------------------------
+# Tool 4: pick_products (MCP App: product cards the user taps in the chat)
+# ---------------------------------------------------------------------------
+
+PICKER_URI = "ui://morrisons/picker"
+PICKER_MAX_INGREDIENTS = 15
+
+
+def _picker_query(ingredient: str) -> str:
+    """Search query for one food name: trimmed, with the known rewrites applied.
+
+    Deliberately not parse_ingredient: that strips prep words for costing,
+    and "chopped tomatoes" must stay "chopped tomatoes" here.
+    """
+    query = " ".join(ingredient.split())
+    return SEARCH_QUERY_REWRITES.get(query.lower(), query)
+
+
+@mcp.tool(app=AppConfig(resource_uri=PICKER_URI))
+async def pick_products(ingredients: list[str], ctx: Context, max_results: int = 8) -> ProductPicks:
+    """
+    Show product cards (photo, name, size, price) for each ingredient so the
+    user can tap the product they buy. In a client that renders MCP Apps the
+    user's picks come back into the chat as their own message, one line per
+    ingredient: "- <ingredient> → <product name> (id <retailerProductId>, <url>)",
+    or "none of these" / "not chosen". Each url is that product's page, the
+    link to store against the ingredient in the user's recipe app. In other
+    clients the result is plain data: the same candidates per ingredient.
+
+    Args:
+        ingredients: Food names without quantities (e.g. "chopped tomatoes"), at most 15
+        max_results: Candidates per ingredient (default 8, max 12)
+    """
+    if len(ingredients) > PICKER_MAX_INGREDIENTS:
+        raise ToolError(f"At most {PICKER_MAX_INGREDIENTS} ingredients per call; split the list.")
+    morrison: MorrisonClient = ctx.lifespan_context["morrison"]
+    rows: list[IngredientChoices] = []
+    for ingredient in ingredients:
+        query = _picker_query(ingredient)
+        results: list[ProductResult] = []
+        if query:  # a blank name gets an empty row, not a search for ""
+            try:
+                results = await morrison.search(query, max_results=max(1, min(max_results, 12)))
+            except Exception as e:
+                logger.error(f"pick_products search failed for '{query}': {e}")
+        rows.append(IngredientChoices(ingredient=ingredient, query=query, results=results))
+    return ProductPicks(ingredients=rows)
+
+
+@mcp.resource(
+    PICKER_URI,
+    name="Morrisons product picker",
+    description="Interactive view for pick_products",
+    app=AppConfig(csp=ResourceCSP(
+        resource_domains=[EXT_APPS_ORIGIN, "https://groceries.morrisons.com"],
+    )),
+)
+def picker_view() -> str:
+    return PICKER_HTML
 
 
 # ---------------------------------------------------------------------------

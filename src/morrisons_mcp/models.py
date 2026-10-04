@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from typing import Literal, Optional
 
 
@@ -36,6 +36,25 @@ class ProductResult(BaseModel):
     image_url: Optional[str] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
+
+    @computed_field(description="Product page URL; Morrisons redirects it to the canonical slug URL")
+    @property
+    def url(self) -> str:
+        return f"https://groceries.morrisons.com/products/{self.retailer_product_id}"
+
+
+# --- Product picker ---
+
+class IngredientChoices(BaseModel):
+    """Candidate products for one ingredient, for the picker UI."""
+    ingredient: str = Field(description="The ingredient as given")
+    query: str = Field(description="The search query actually used")
+    results: list[ProductResult] = Field(default_factory=list)
+
+
+class ProductPicks(BaseModel):
+    """pick_products result: one row of candidates per ingredient."""
+    ingredients: list[IngredientChoices]
 
 
 # --- Nutrition ---
