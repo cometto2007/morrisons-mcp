@@ -97,7 +97,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     cache = ProductCache(db_path=os.getenv("CACHE_DB_PATH", "/data/cache.db"))
     # Drop product rows from older parser versions (e.g. without basis_note);
     # they are never read again under the current key.
-    for stale in ("bop:", "bop_v2:"):
+    for stale in ("bop:", "bop_v2:", "bop_v3:"):
         await cache.delete_prefix(stale)
     # Rows left by the removed recipe-nutrition fallback (Open Food Facts/USDA)
     await cache.delete_prefix("fallback")
@@ -291,7 +291,10 @@ async def get_product_detail(retailer_product_id: str, ctx: Context) -> ProductD
     e.g. "as consumed", "as sold", "prepared", "cooked", "raw", "drained" or a
     cooking method like "grilled"; null when the header has none. Figures may
     be "as consumed" (cooked), e.g. a whole chicken's 27.3 g protein is cooked
-    meat, so don't assume raw weight; check `basis_note`. Also returns the raw
+    meat, so don't assume raw weight; check `basis_note`. Also returns the
+    label's `ingredients` list as text (null for unlabelled foods such as fresh
+    meat or produce) with the `allergens` it prints in bold, Morrisons'
+    `label_icons` (e.g. Vegetarian, Vegan; only what Morrisons shows), the raw
     `pack_size`, a parsed `net_quantity` {value, unit} in g or ml, price,
     origin, storage and cooking info.
 

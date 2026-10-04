@@ -23,10 +23,12 @@ BOP_OK = {
         "brand": "Coca-Cola",
         "packSizeDescription": "500ml",
         "price": {"amount": "1.85", "currency": "GBP"},
+        "iconAttributes": [{"label": "Vegetarian", "file": "vegetarian"}, {"label": "Vegan", "file": "vegan"}],
     },
     "bopData": {
         "fields": [
             {"title": "brand", "content": "Coca-Cola"},
+            {"title": "ingredients", "content": "Carbonated Water, Sugar, Colour (Caramel E150d),<br />Flavourings including <strong>Caffeine</strong>"},
             # A non-nutrition field with a table must not be mistaken for the label
             {"title": "otherInformation", "content": "<table><tr><td>x</td><td>1g</td></tr></table>"},
             {"title": "nutritionalData", "content": PER_100ML_LABEL},
@@ -67,7 +69,8 @@ async def test_product_detail_parses_label_and_net_quantity(client):
     n = d.nutrition_per_100g
     assert n.basis == "100ml"
     assert n.energy_kcal == 46 and n.sugars_g == 11.4 and n.salt_g == 0.01
-    assert await _cached_keys(client.cache) == ["bop_v3:100162517"]
+    assert await _cached_keys(client.cache) == ["bop_v4:100162517"]
+    assert d.label_icons == ["Vegetarian", "Vegan"]
 
 
 @pytest.mark.parametrize(
@@ -110,3 +113,37 @@ async def test_tool_returns_found_false_for_dead_product(client):
     assert result.found is False
     assert result.retailer_product_id == "999999999999"
     assert result.name is None and result.nutrition_per_100g is None
+
+
+def _with_fields(ingredients=None, icon_attributes=()):
+    fields = [f for f in BOP_OK["bopData"]["fields"] if f["title"] != "ingredients"]
+    if ingredients is not None:
+        fields.append({"title": "ingredients", "content": ingredients})
+    return {**BOP_OK, "product": {**BOP_OK["product"], "iconAttributes": icon_attributes},
+            "bopData": {"fields": fields}}
+
+
+async def test_ingredients_keep_label_spacing_and_list_bold_allergens(client):
+    # Real Morrisons markup: allergens in <b>, line breaks as <br />, entities
+    html = ("Water, Yogurt Powder (<b>Milk</b>), Honey,<br />"
+            "<b>Cashew Nuts</b>, Butter (<b>Milk</b>) &amp; <strong>Wheat</strong> Flour")
+    client.session.request = AsyncMock(return_value=_resp(200, _with_fields(html)))
+    d = await client.get_product_detail("100162517")
+    assert d.ingredients == "Water, Yogurt Powder (Milk), Honey, Cashew Nuts, Butter (Milk) & Wheat Flour"
+    assert d.allergens == ["Milk", "Cashew Nuts", "Wheat"]
+
+
+async def test_unlabelled_product_has_no_ingredients(client):
+    client.session.request = AsyncMock(return_value=_resp(200, _with_fields(None, [])))
+    d = await client.get_product_detail("100162517")
+    assert d.ingredients is None
+    assert d.allergens == []
+    assert d.label_icons == []
+
+
+@pytest.mark.parametrize("icons", [5, "Vegan", None, [None, 3, {"label": 5}, {"label": {"x": 1}}, {"label": " Vegan "}]],
+                         ids=["int", "string", "null", "mixed-list"])
+async def test_label_icons_survive_untrusted_shapes(client, icons):
+    client.session.request = AsyncMock(return_value=_resp(200, _with_fields("Tomato", icons)))
+    d = await client.get_product_detail("100162517")
+    assert d.label_icons == (["Vegan"] if isinstance(icons, list) else [])

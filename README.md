@@ -9,7 +9,7 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | Tool | Description |
 |------|-------------|
 | `search_products` | Search Morrisons products by keyword. Returns price, unit price, promotions, pack size, category. |
-| `get_product_detail` | Full product detail: per-100 g/ml nutrition from the label, raw and parsed pack size, price, origin, storage. Returns `found: false` for a gone product. |
+| `get_product_detail` | Full product detail: per-100 g/ml nutrition from the label, the ingredient list with its bold allergens, raw and parsed pack size, price, origin, storage. Returns `found: false` for a gone product. |
 | `cost_recipe` | Cost a recipe from a list of ingredient strings. Returns total cost + per-ingredient breakdown. |
 | `pick_products` | Product cards per ingredient (photo, name, size, price) rendered in the chat as an [MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart); the user taps the product they buy and Submit posts the picks back as their message. Clients without MCP Apps get the same candidates as data. |
 
@@ -26,7 +26,10 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `nutrition_per_100g.basis` | `"100g"` or `"100ml"`. Drinks are usually `"100ml"`; the figures are then per 100 ml, not per 100 g. |
 | `nutrition_per_100g.basis_note` | The per-100 column header's qualifier, lowercase: `"as consumed"`, `"as sold"`, `"prepared"` (also "when prepared", "made up"), `"cooked"`, `"raw"` (also "uncooked"), `"drained"`, or a bracketed cooking method such as `"grilled"` from "per 100g (grilled)". `null` when the header has none. Figures may be **as consumed (cooked)**: the whole chicken's label is "(as consumed) per 100g", so don't assume raw weight. |
 | `nutrition_per_100g.*` | `energy_kj`, `energy_kcal`, `fat_g`, `saturates_g`, `carbohydrate_g`, `sugars_g`, `fibre_g`, `protein_g`, `salt_g`. Each is `null` if the label lacks it. `nil`/`trace` read as 0; `<0.1g` reads as half the bound (0.05). |
-| `country_of_origin`, `storage`, `cooking_guidelines`, `features`, `servings_info`, `promotions` | Label text where present. |
+| `ingredients` | The label's ingredient list as text, markup removed (`"Tomato (65%), Concentrated Tomato Juice, Acidity Regulator (Citric Acid)"`). `null` when the label has none: fresh meat, fruit and vegetables. |
+| `allergens` | The ingredients the label prints in bold (Morrisons sends them as `<b>`), in label order: `["Milk", "Cashew Nuts"]`. Empty when the label marks none or has no ingredient list. |
+| `label_icons` | Morrisons' icon badges on the product, e.g. `["Vegetarian", "Vegan"]`. Only what Morrisons chose to show: an empty list is not a statement of unsuitability, and it is not an allergen list. |
+| `country_of_origin`, `storage`, `cooking_guidelines`, `features`, `servings_info`, `promotions` | Label text where present, as Morrisons sends it (these may contain `<br />` markup; only `ingredients` is cleaned). |
 
 Morrisons' product payload carries no GTIN/EAN, so none is returned.
 
@@ -141,7 +144,7 @@ The server caches API responses in SQLite to reduce load on the Morrisons websit
 | Cache type | TTL | Cache key |
 |------------|-----|-----------|
 | Search results | 1 hour (3600s) | `search:{normalised_query}` |
-| Product BOP/nutrition | 24 hours (86400s) | `bop_v3:{retailerProductId}` (found products only) |
+| Product BOP/nutrition | 24 hours (86400s) | `bop_v4:{retailerProductId}` (found products only) |
 
 The SQLite database is stored at `/data/cache.db`, backed by a Docker named volume (`morrisons_data`) for persistence across container restarts.
 
