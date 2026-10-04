@@ -39,55 +39,104 @@ def _extract_float(text: str) -> float | None:
     return None
 
 
-def _per_100_column(cells: list[str]) -> tuple[int, str] | None:
-    """Return (column index, basis) of the first per-100 g/ml header cell, if any."""
-    for idx, text in enumerate(cells[1:], start=1):
-        m = _PER_100_RE.search(text)
-        if m:
-            return idx, "100ml" if m.group(1).lower().startswith("m") else "100g"
-    # "Typical values per 100g | <value>": the basis is in the label column
-    if len(cells) == 2:
-        m = _PER_100_RE.search(cells[0])
-        if m:
-            return 1, "100ml" if m.group(1).lower().startswith("m") else "100g"
+# Header words that mean the column is not plain per-100 of the product as sold,
+# e.g. "Per 30g with 100ml milk", "Per 100g as prepared", "Per portion".
+_NOT_PER_100_RE = re.compile(r"serving|\bwith\b|portion|pack|as prepared", re.IGNORECASE)
+# Wording of a row-label column header ("Typical values", "Nutrition")
+_LABEL_HEADER_RE = re.compile(r"typical|values?\b|nutrition", re.IGNORECASE)
+
+
+def _per_100_basis(text: str) -> str | None:
+    """Return "100g"/"100ml" if this header cell names a plain per-100 column."""
+    m = _PER_100_RE.search(text)
+    if not m or _NOT_PER_100_RE.search(text):
+        return None
+    return "100ml" if m.group(1).lower().startswith("m") else "100g"
+
+
+def _rows(table) -> list[list[str]]:
+    return [
+        [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+        for tr in table.find_all("tr")
+    ]
+
+
+def _find_per_100_column(rows: list[list[str]]) -> tuple[int, int, str] | None:
+    """Locate the per-100 column in a table.
+
+    Returns (header row index, data column index, basis), or None when the
+    table has no unambiguous per-100 g/ml column.
+    """
+    for h, header in enumerate(rows):
+        if not any(_PER_100_RE.search(c) for c in header):
+            continue
+        widths = [len(r) for r in rows[h + 1:] if len(r) >= 2]
+        if not widths:
+            return None
+        data_width = max(set(widths), key=widths.count)
+        # A header without a label cell sits one cell short of the data rows
+        offset = data_width - len(header)
+        if offset not in (0, 1):
+            return None
+
+        for i, text in enumerate(header):
+            basis = _per_100_basis(text)
+            if not basis:
+                continue
+            if offset == 1:
+                # "Typical values per 100g" one cell short could be a label
+                # header or a shifted value header: too ambiguous to trust.
+                if i == 0 and _LABEL_HEADER_RE.search(text):
+                    return None
+                return h, i + 1, basis
+            if i >= 1:
+                return h, i, basis
+            # "Typical values per 100g | <blank>": the basis is in the label
+            # cell. Only trust it when there is a single value column whose
+            # own header names no other basis.
+            if data_width == 2 and not re.search(r"\d|per", header[1], re.IGNORECASE):
+                return h, 1, basis
+        return None
     return None
 
 
 def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
     """Parse a Morrisons BOP nutrition table into per-100 g/ml values.
 
-    Only the column whose header says per 100 g (or per 100 ml) is read. A
-    table without such a column (per-serving only, or no header at all)
-    returns None rather than figures on an unknown basis.
+    Only the column whose header says per 100 g (or per 100 ml) is read, from
+    the first table that has one; other tables (per serving, as prepared) are
+    ignored. A label without such a column returns None rather than figures
+    on an unknown basis.
     """
     if not html:
         return None
 
     try:
         soup = BeautifulSoup(html, "html.parser")
-        rows = soup.find_all("tr")
+        tables = soup.find_all("table") or [soup]
 
-        col: int | None = None
-        basis = "100g"
+        rows: list[list[str]] = []
+        found = None
+        for table in tables:
+            rows = _rows(table)
+            found = _find_per_100_column(rows)
+            if found:
+                break
+        if not found:
+            logger.debug("Nutrition label has no per-100g/ml column; ignoring it")
+            return None
+        header_idx, col, basis = found
+
         result: dict[str, float | None] = {}
+        sodium_g: float | None = None
         prev_label = ""
 
-        for row in rows:
-            cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
-            if len(cells) < 2:
-                continue
-
-            if col is None:
-                found = _per_100_column(cells)
-                if found:
-                    col, basis = found
-                continue
-
-            if col >= len(cells):
+        for cells in rows[header_idx + 1:]:
+            if len(cells) < 2 or col >= len(cells):
                 continue
 
             label = cells[0].lower()
-            value_text = re.sub(r"(\d),(\d{3})\b", r"\1\2", cells[col])
+            value_text = re.sub(r"(\d),(\d{3})(?=\D|$)", r"\1\2", cells[col])
 
             # Energy is often split over two rows, the second with an empty
             # label: "Energy | 195 kJ" then " | 46 kcal".
@@ -136,9 +185,14 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
             elif label == "salt" or label.startswith("salt "):
                 result["salt_g"] = _extract_float(value_text)
 
-        if col is None:
-            logger.debug("Nutrition table has no per-100g/ml column; ignoring it")
-            return None
+            elif label.startswith("sodium"):
+                sodium_g = _extract_float(value_text)
+                if sodium_g is not None and "mg" in f"{label} {value_text}".lower():
+                    sodium_g /= 1000
+
+        # Sodium-only labels: salt = sodium x 2.5
+        if result.get("salt_g") is None and sodium_g is not None:
+            result["salt_g"] = round(sodium_g * 2.5, 3)
 
         if not any(v is not None for v in result.values()):
             logger.debug("Nutrition table parsed but no recognised nutrient rows found")
@@ -155,25 +209,43 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
         return None
 
 
-_NET_QTY_RE = re.compile(
-    r"(?:(\d+)\s*[x×]\s*)?(\d+(?:\.\d+)?)\s*(kg|g|ml|cl|l|ltr|litres?|liters?)\b",
-    re.IGNORECASE,
+# One weight/volume, not preceded by a digit, "." or "/" (so "1/2 kg" is skipped)
+_QTY_RE = re.compile(
+    r"(?<![\d./])(\d+(?:\.\d+)?)\s*(kg|g|ml|cl|l|ltr|litres?|liters?)\b", re.IGNORECASE
+)
+# A multipack count next to its multiplier: "6 x", "x 6", "4pk", "(6 pack)"
+_COUNT_RE = re.compile(
+    r"(\d+)\s*[x×]|[x×]\s*(\d+)|(\d+)\s*(?:pk|packs?)\b", re.IGNORECASE
 )
 _TO_BASE = {"kg": (1000, "g"), "g": (1, "g"), "ml": (1, "ml"), "cl": (10, "ml")}
 
 
 def parse_net_quantity(pack_size: str | None) -> NetQuantity | None:
-    """Parse a pack size like '400g', '1kg', '500ml' or '6 x 330ml' into g/ml.
+    """Parse a pack size like '400g', '1kg', '6 x 330ml' or '330ml (6pk)' into g/ml.
 
-    Multipacks are totalled. Returns None when no weight or volume is found
-    (e.g. 'Each', '6 pack').
+    Multipacks are totalled. Returns None when there is no single weight or
+    volume, or when a number is left over that isn't a multipack count
+    (never a single unit of a multipack).
     """
     if not pack_size:
         return None
-    m = _NET_QTY_RE.search(pack_size)
-    if not m:
+    qtys = list(_QTY_RE.finditer(pack_size))
+    if len(qtys) != 1:
         return None
-    count = int(m.group(1)) if m.group(1) else 1
-    unit = m.group(3).lower()
+    m = qtys[0]
+    rest = pack_size[: m.start()] + " " + pack_size[m.end():]
+
+    count = 1
+    counts = list(_COUNT_RE.finditer(rest))
+    if len(counts) > 1:
+        return None
+    if counts:
+        c = counts[0]
+        count = int(next(g for g in c.groups() if g))
+        rest = rest[: c.start()] + rest[c.end():]
+    if re.search(r"\d", rest):
+        return None  # an unexplained number, e.g. "1/2 kg" or "2 x 4 x 125g"
+
+    unit = m.group(2).lower()
     factor, base = _TO_BASE.get(unit, (1000, "ml"))  # l / ltr / litre(s)
-    return NetQuantity(value=round(count * float(m.group(2)) * factor, 3), unit=base)
+    return NetQuantity(value=round(count * float(m.group(1)) * factor, 3), unit=base)

@@ -56,7 +56,7 @@ All optional. Copy `.env.example` to `.env` to set them.
 docker compose up -d
 ```
 
-The image (`ghcr.io/cometto2007/morrisons-mcp`, `linux/amd64` and `linux/arm64`) listens on port 8000; point MCP clients at `http://<host>:8000/mcp`.
+The image (`ghcr.io/cometto2007/morrisons-mcp`, `linux/amd64` and `linux/arm64`) listens on port 8000 inside the container. Compose publishes no ports; Traefik routes to it, so MCP clients use `https://<traefik-host>/mcp`.
 
 ### Running Locally
 

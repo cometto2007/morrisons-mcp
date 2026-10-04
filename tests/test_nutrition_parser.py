@@ -285,3 +285,125 @@ def test_net_quantity(pack_size, value, unit):
 @pytest.mark.parametrize("pack_size", [None, "", "Each", "6 pack", "Per kg"])
 def test_net_quantity_unparseable(pack_size):
     assert parse_net_quantity(pack_size) is None
+
+
+# --- Review fixes: column alignment, ambiguous headers, multiple tables ---
+
+def test_header_without_label_cell_aligns_to_data_columns():
+    html = """<table>
+    <tr><th>Per 30g serving</th><th>Per 100g</th></tr>
+    <tr><th>Fat</th><td>1.5g</td><td>5g</td></tr>
+    <tr><th>Protein</th><td>3g</td><td>10g</td></tr>
+    </table>"""
+    n = parse_nutrition_html(html)
+    assert n is not None and n.basis == "100g"
+    assert n.fat_g == 5.0 and n.protein_g == 10.0
+
+
+def test_header_without_label_cell_per_100_first():
+    html = """<table>
+    <tr><th>Per 100g</th><th>Per 30g serving</th></tr>
+    <tr><td>Fat</td><td>5g</td><td>1.5g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html).fat_g == 5.0
+
+
+@pytest.mark.parametrize("header", [
+    "Per 30g with 100ml milk", "Per 100g as prepared", "Per 100g serving", "Per portion (100g)",
+])
+def test_qualified_per_100_headers_are_not_per_100(header):
+    html = f"""<table>
+    <tr><th>Typical Values</th><th>{header}</th></tr>
+    <tr><td>Fat</td><td>5g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html) is None
+
+
+def test_as_prepared_column_skipped_for_plain_per_100():
+    html = """<table>
+    <tr><th>Typical Values</th><th>Per 100g as prepared</th><th>Per 100g</th></tr>
+    <tr><td>Fat</td><td>1g</td><td>9g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html).fat_g == 9.0
+
+
+def test_label_cell_basis_with_serving_column_is_ambiguous():
+    html = """<table>
+    <tr><th>Typical values per 100g</th><th>Per 30g serving</th></tr>
+    <tr><td>Fat</td><td>1.5g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html) is None
+    html3 = """<table>
+    <tr><th>Typical values per 100g</th><th>Per 30g serving</th></tr>
+    <tr><td>Fat</td><td>5g</td><td>1.5g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html3) is None
+
+
+def test_kj_thousands_separator():
+    html = """<table>
+    <tr><th>Typical Values</th><th>Per 100g</th></tr>
+    <tr><td>Energy</td><td>1,569kJ/375kcal</td></tr>
+    </table>"""
+    n = parse_nutrition_html(html)
+    assert n.energy_kj == 1569 and n.energy_kcal == 375
+
+
+def test_second_table_does_not_overwrite_per_100():
+    html = """
+    <table><tr><th>Typical Values</th><th>Per 100g</th></tr>
+    <tr><td>Fat</td><td>9g</td></tr><tr><td>Salt</td><td>1.2g</td></tr></table>
+    <table><tr><th>Typical Values</th><th>Per 100g as prepared</th></tr>
+    <tr><td>Fat</td><td>2g</td></tr><tr><td>Salt</td><td>0.3g</td></tr></table>
+    <table><tr><th>Typical Values</th><th>Per 30g serving</th></tr>
+    <tr><td>Fat</td><td>2.7g</td></tr></table>"""
+    n = parse_nutrition_html(html)
+    assert n.fat_g == 9.0 and n.salt_g == 1.2
+
+
+def test_first_table_per_serving_only_uses_later_per_100_table():
+    html = """
+    <table><tr><th>Typical Values</th><th>Per 30g serving</th></tr>
+    <tr><td>Fat</td><td>2.7g</td></tr></table>
+    <table><tr><th>Typical Values</th><th>Per 100g</th></tr>
+    <tr><td>Fat</td><td>9g</td></tr></table>"""
+    assert parse_nutrition_html(html).fat_g == 9.0
+
+
+@pytest.mark.parametrize("sodium, salt", [("0.4g", 1.0), ("400mg", 1.0)])
+def test_sodium_only_label_derives_salt(sodium, salt):
+    html = f"""<table>
+    <tr><th>Typical Values</th><th>Per 100g</th></tr>
+    <tr><td>Protein</td><td>3g</td></tr>
+    <tr><td>Sodium</td><td>{sodium}</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html).salt_g == pytest.approx(salt)
+
+
+def test_salt_wins_over_sodium():
+    html = """<table>
+    <tr><th>Typical Values</th><th>Per 100g</th></tr>
+    <tr><td>Salt</td><td>1.1g</td></tr>
+    <tr><td>Sodium</td><td>0.4g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html).salt_g == 1.1
+
+
+@pytest.mark.parametrize(
+    "pack_size, value, unit",
+    [
+        ("330ml x 6", 1980, "ml"),
+        ("100g x 3", 300, "g"),
+        ("4pk x 125g", 500, "g"),
+        ("330ml (6pk)", 1980, "ml"),
+        ("Pack of 4 x 100g", 400, "g"),
+    ],
+)
+def test_net_quantity_multipack_formats(pack_size, value, unit):
+    q = parse_net_quantity(pack_size)
+    assert q is not None and (q.value, q.unit) == (value, unit)
+
+
+@pytest.mark.parametrize("pack_size", ["1/2 kg", "2 x 4 x 125g", "500g (Serves 4)", "250g + 250g"])
+def test_net_quantity_never_a_single_unit_of_a_multipack(pack_size):
+    assert parse_net_quantity(pack_size) is None

@@ -87,6 +87,12 @@ class ProductCache:
         await db.commit()
         logger.info("Cache cleared")
 
+    async def delete_prefix(self, prefix: str) -> None:
+        """Delete every entry whose key starts with prefix."""
+        db = await self._ensure_db()
+        await db.execute("DELETE FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix))
+        await db.commit()
+
     async def cleanup(self) -> None:
         """Delete all expired entries."""
         db = await self._ensure_db()

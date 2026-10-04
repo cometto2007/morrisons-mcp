@@ -1,5 +1,7 @@
 # Morrisons MCP Server — Build Document
 
+> **Superseded:** transport is now Streamable HTTP at `/mcp`; see the README.
+
 > **Purpose**: This document is a complete specification for Claude CLI / Claude Code to build the `morrisons-mcp` project from scratch. Follow it section-by-section, implementing each file fully before moving on. Do not skip or stub any section.
 
 ---

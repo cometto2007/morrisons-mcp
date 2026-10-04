@@ -94,6 +94,9 @@ logger = logging.getLogger(__name__)
 async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     _configure_logging()
     cache = ProductCache(db_path=os.getenv("CACHE_DB_PATH", "/data/cache.db"))
+    # Drop pre-v2 product rows (could hold per-serving figures or "Unknown"
+    # products); they are never read again under the bop_v2: key.
+    await cache.delete_prefix("bop:")
     morrison = MorrisonClient(cache=cache)
     mealie = MealieClient(cache=cache)
     logger.info("Morrisons MCP server starting up")
