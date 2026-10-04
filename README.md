@@ -23,6 +23,7 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `net_quantity` | Parsed pack size `{value, unit}` with `unit` `g` or `ml`; multipacks are totalled (`"6 x 330ml"` → `{1980, "ml"}`). `null` when unparseable (`"Each"`, `"6 pack"`). |
 | `nutrition_per_100g` | Figures from the label column headed per 100 g or per 100 ml only, never a per-serving column. `null` when the label has no per-100 column. |
 | `nutrition_per_100g.basis` | `"100g"` or `"100ml"`. Drinks are usually `"100ml"`; the figures are then per 100 ml, not per 100 g. |
+| `nutrition_per_100g.basis_note` | The per-100 column header's qualifier, lowercase: `"as consumed"`, `"as sold"`, `"prepared"` (also "when prepared", "made up"), `"cooked"`, `"raw"` (also "uncooked"), `"drained"`, or a bracketed cooking method such as `"grilled"` from "per 100g (grilled)". `null` when the header has none. Figures may be **as consumed (cooked)**: the whole chicken's label is "(as consumed) per 100g", so don't assume raw weight. |
 | `nutrition_per_100g.*` | `energy_kj`, `energy_kcal`, `fat_g`, `saturates_g`, `carbohydrate_g`, `sugars_g`, `fibre_g`, `protein_g`, `salt_g`. Each is `null` if the label lacks it. `nil`/`trace` read as 0; `<0.1g` reads as half the bound (0.05). |
 | `country_of_origin`, `storage`, `cooking_guidelines`, `features`, `servings_info`, `promotions` | Label text where present. |
 
@@ -82,7 +83,7 @@ search_products("chicken breast", max_results=5)
 get_product_detail("108444543")
 → { found: true, name: "Morrisons British Whole Chicken Medium 1.45kg", pack_size: "1.45kg",
     net_quantity: { value: 1450, unit: "g" },
-    nutrition_per_100g: { basis: "100g", energy_kcal: 177, protein_g: 27.3, fat_g: 7.5,
+    nutrition_per_100g: { basis: "100g", basis_note: "as consumed", energy_kcal: 177, protein_g: 27.3, fat_g: 7.5,
                           saturates_g: 2.1, carbohydrate_g: 0, sugars_g: 0, fibre_g: 0, salt_g: 0.2, ... }, ... }
 
 get_product_detail("999999999999")

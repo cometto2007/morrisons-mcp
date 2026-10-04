@@ -25,6 +25,7 @@ async def test_live_product_and_dead_product(tmp_path):
         assert d.net_quantity is not None and d.net_quantity.unit == "g"
         n = d.nutrition_per_100g
         assert n is not None and n.basis == "100g"
+        assert n.basis_note == "as consumed"
         assert n.energy_kcal and n.protein_g is not None and n.salt_g is not None
 
         with pytest.raises(ProductNotFoundError):
