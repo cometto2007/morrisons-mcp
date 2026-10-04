@@ -49,6 +49,14 @@ class NutritionPer100g(BaseModel):
     basis: Literal["100g", "100ml"] = Field(
         "100g", description="What the figures are per: 100 grams or 100 millilitres"
     )
+    basis_note: Optional[str] = Field(
+        None,
+        description=(
+            "Qualifier from the per-100 column header, lowercase: e.g. 'as consumed' "
+            "(cooked), 'as sold', 'prepared', 'cooked', 'raw', 'drained', or a cooking "
+            "method such as 'grilled'. Null when the header has none."
+        ),
+    )
     energy_kj: Optional[float] = None
     energy_kcal: Optional[float] = None
     fat_g: Optional[float] = None

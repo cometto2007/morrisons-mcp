@@ -54,6 +54,33 @@ def _per_100_basis(text: str) -> str | None:
     return "100ml" if m.group(1).lower().startswith("m") else "100g"
 
 
+# Qualifiers a per-100 header can carry, e.g. "(as consumed) per 100g" or
+# "Per 100g (grilled)", mapped to the `basis_note` returned. First match wins.
+_QUALIFIERS = [
+    (re.compile(r"as consumed", re.IGNORECASE), "as consumed"),
+    (re.compile(r"as sold", re.IGNORECASE), "as sold"),
+    (re.compile(r"\bprepared\b|made up", re.IGNORECASE), "prepared"),
+    (re.compile(r"uncooked|\braw\b", re.IGNORECASE), "raw"),
+    (re.compile(r"\bcooked\b", re.IGNORECASE), "cooked"),
+    (re.compile(r"drained", re.IGNORECASE), "drained"),
+]
+# A cooking method in brackets, e.g. "Per 100g (grilled)", "(oven baked)"
+_COOKING_METHOD_RE = re.compile(
+    r"\(\s*((?:oven[ -])?(?:grilled|roasted|baked|fried|boiled|steamed|"
+    r"microwaved|poached|barbecued))\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _basis_note(text: str) -> str | None:
+    """Return the per-100 header's qualifier ("as consumed", "grilled", ...) or None."""
+    for pattern, note in _QUALIFIERS:
+        if pattern.search(text):
+            return note
+    m = _COOKING_METHOD_RE.search(text)
+    return m.group(1).lower() if m else None
+
+
 def _rows(table) -> list[list[str]]:
     return [
         [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
@@ -64,8 +91,8 @@ def _rows(table) -> list[list[str]]:
 def _find_per_100_column(rows: list[list[str]]) -> tuple[int, int, str] | None:
     """Locate the per-100 column in a table.
 
-    Returns (header row index, data column index, basis), or None when the
-    table has no unambiguous per-100 g/ml column.
+    Returns (header row index, data column index, header cell text), or None
+    when the table has no unambiguous per-100 g/ml column.
     """
     for h, header in enumerate(rows):
         if not any(_PER_100_RE.search(c) for c in header):
@@ -80,22 +107,21 @@ def _find_per_100_column(rows: list[list[str]]) -> tuple[int, int, str] | None:
             return None
 
         for i, text in enumerate(header):
-            basis = _per_100_basis(text)
-            if not basis:
+            if not _per_100_basis(text):
                 continue
             if offset == 1:
                 # "Typical values per 100g" one cell short could be a label
                 # header or a shifted value header: too ambiguous to trust.
                 if i == 0 and _LABEL_HEADER_RE.search(text):
                     return None
-                return h, i + 1, basis
+                return h, i + 1, text
             if i >= 1:
-                return h, i, basis
+                return h, i, text
             # "Typical values per 100g | <blank>": the basis is in the label
             # cell. Only trust it when there is a single value column whose
             # own header names no other basis.
             if data_width == 2 and not re.search(r"\d|per", header[1], re.IGNORECASE):
-                return h, 1, basis
+                return h, 1, text
         return None
     return None
 
@@ -125,7 +151,7 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
         if not found:
             logger.debug("Nutrition label has no per-100g/ml column; ignoring it")
             return None
-        header_idx, col, basis = found
+        header_idx, col, header_text = found
 
         result: dict[str, float | None] = {}
         sodium_g: float | None = None
@@ -202,7 +228,11 @@ def parse_nutrition_html(html: str | None) -> NutritionPer100g | None:
         if result.get("energy_kcal") is None and result.get("energy_kj") is not None:
             result["energy_kcal"] = round(result["energy_kj"] / 4.184, 1)
 
-        return NutritionPer100g(basis=basis, **result)
+        return NutritionPer100g(
+            basis=_per_100_basis(header_text),
+            basis_note=_basis_note(header_text),
+            **result,
+        )
 
     except Exception as e:
         logger.error(f"Failed to parse nutrition HTML: {e}")

@@ -407,3 +407,54 @@ def test_net_quantity_multipack_formats(pack_size, value, unit):
 @pytest.mark.parametrize("pack_size", ["1/2 kg", "2 x 4 x 125g", "500g (Serves 4)", "250g + 250g"])
 def test_net_quantity_never_a_single_unit_of_a_multipack(pack_size):
     assert parse_net_quantity(pack_size) is None
+
+
+# --- basis_note: the per-100 header's qualifier ---
+
+def test_real_chicken_header_basis_note():
+    n = parse_nutrition_html(PER_100G_LABEL)
+    assert n.basis == "100g" and n.basis_note == "as consumed"
+    assert n.protein_g == 27.3
+
+
+@pytest.mark.parametrize("header, note", [
+    ("(as consumed) per 100g", "as consumed"),
+    ("Per 100g (As Consumed)", "as consumed"),
+    ("Per 100g as sold", "as sold"),
+    ("Per 100ml when prepared", "prepared"),
+    ("Prepared per 100g", "prepared"),
+    ("Per 100ml made up", "prepared"),
+    ("Per 100g cooked", "cooked"),
+    ("Per 100g (Oven Cooked)", "cooked"),
+    ("Per 100g raw", "raw"),
+    ("Uncooked per 100g", "raw"),
+    ("Per 100g drained", "drained"),
+    ("Per 100g (grilled)", "grilled"),
+    ("Per 100g (oven baked)", "oven baked"),
+    ("Per 100g (Roasted)", "roasted"),
+])
+def test_basis_note_from_header(header, note):
+    html = f"""<table>
+    <tr><th>Typical Values</th><th>{header}</th></tr>
+    <tr><td>Fat</td><td>5g</td></tr>
+    </table>"""
+    assert parse_nutrition_html(html).basis_note == note
+
+
+@pytest.mark.parametrize("header", ["Per 100g", "Per: 100 ml", "100g"])
+def test_basis_note_none_without_qualifier(header):
+    html = f"""<table>
+    <tr><th>Typical Values</th><th>{header}</th></tr>
+    <tr><td>Fat</td><td>5g</td></tr>
+    </table>"""
+    n = parse_nutrition_html(html)
+    assert n.fat_g == 5.0 and n.basis_note is None
+
+
+def test_basis_note_from_chosen_column_only():
+    html = """<table>
+    <tr><th>Typical Values</th><th>Per 30g serving (cooked)</th><th>Per 100g</th></tr>
+    <tr><td>Fat</td><td>1.5g</td><td>5g</td></tr>
+    </table>"""
+    n = parse_nutrition_html(html)
+    assert n.fat_g == 5.0 and n.basis_note is None

@@ -279,7 +279,13 @@ async def get_product_detail(retailer_product_id: str, ctx: Context) -> ProductD
 
     Nutrition comes only from the label's per-100g or per-100ml column;
     `nutrition_per_100g.basis` says which ("100g" or "100ml"). If the label has
-    no per-100 column, `nutrition_per_100g` is null. Also returns the raw
+    no per-100 column, `nutrition_per_100g` is null.
+
+    `nutrition_per_100g.basis_note` is the column header's qualifier, lowercase,
+    e.g. "as consumed", "as sold", "prepared", "cooked", "raw", "drained" or a
+    cooking method like "grilled"; null when the header has none. Figures may
+    be "as consumed" (cooked), e.g. a whole chicken's 27.3 g protein is cooked
+    meat, so don't assume raw weight; check `basis_note`. Also returns the raw
     `pack_size`, a parsed `net_quantity` {value, unit} in g or ml, price,
     origin, storage and cooking info.
 
