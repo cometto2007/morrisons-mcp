@@ -6,8 +6,6 @@ from morrisons_mcp.models import (
     ProductDetail,
     IngredientCost,
     RecipeCostResult,
-    IngredientNutrition,
-    RecipeNutritionResult,
     Promotion,
 )
 
@@ -84,34 +82,7 @@ def test_promotion_model():
     assert promo.expiry is None
 
 
-def test_recipe_nutrition_result_zero_totals():
-    """Zero totals should be returned as 0.0 (not None) when data is present."""
-    result = RecipeNutritionResult(
-        ingredients=[],
-        total_kcal=0.0,
-        total_protein_g=0.0,
-        total_fat_g=0.0,
-        total_carbs_g=0.0,
-    )
-    assert result.total_kcal == 0.0
-    assert result.total_protein_g == 0.0
 
-
-def test_recipe_nutrition_result_per_serving():
-    result = RecipeNutritionResult(
-        ingredients=[],
-        servings=4.0,
-        total_kcal=800.0,
-        per_serving_kcal=200.0,
-    )
-    assert result.per_serving_kcal == 200.0
-
-
-def test_ingredient_nutrition_all_optional():
-    n = IngredientNutrition(ingredient="500g chicken breast")
-    assert n.estimated_kcal is None
-    assert n.matched_product is None
-    assert n.estimated_weight_g is None
 
 
 def test_search_query_rewrites_peas():
@@ -151,9 +122,3 @@ def test_ingredient_synonyms_mayo():
     assert "low-fat mayo" in INGREDIENT_SYNONYMS
     assert "low fat mayo" in INGREDIENT_SYNONYMS
     assert "light mayonnaise" in INGREDIENT_SYNONYMS["low-fat mayo"]
-
-
-def test_sheet_weight_in_unit_table():
-    """'sheet' unit must be 25g so lasagne sheet counts estimate correctly."""
-    from morrisons_mcp.weight_estimator import UNIT_TO_GRAMS
-    assert UNIT_TO_GRAMS.get("sheet") == 25

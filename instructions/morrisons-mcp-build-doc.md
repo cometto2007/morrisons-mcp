@@ -1,5 +1,9 @@
 # Morrisons MCP Server — Build Document
 
+> **Superseded:** transport is now Streamable HTTP at `/mcp`; see the README.
+>
+> **Superseded:** the `get_recipe_nutrition` tool described below has been removed (recipe totals are calculated in PrepTrack from per-food label figures); see the README for the current tools.
+
 > **Purpose**: This document is a complete specification for Claude CLI / Claude Code to build the `morrisons-mcp` project from scratch. Follow it section-by-section, implementing each file fully before moving on. Do not skip or stub any section.
 
 ---

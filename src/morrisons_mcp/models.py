@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 
 
 # --- Ingredient Parsing ---
@@ -41,7 +41,14 @@ class ProductResult(BaseModel):
 # --- Nutrition ---
 
 class NutritionPer100g(BaseModel):
-    """Nutritional values per 100g parsed from BOP HTML table."""
+    """Nutritional values per 100 g or per 100 ml (see `basis`).
+
+    Values come only from the label column headed "per 100g" or "per 100ml";
+    per-serving columns are never used.
+    """
+    basis: Literal["100g", "100ml"] = Field(
+        "100g", description="What the figures are per: 100 grams or 100 millilitres"
+    )
     energy_kj: Optional[float] = None
     energy_kcal: Optional[float] = None
     fat_g: Optional[float] = None
@@ -53,12 +60,29 @@ class NutritionPer100g(BaseModel):
     salt_g: Optional[float] = None
 
 
+class NetQuantity(BaseModel):
+    """Net quantity parsed from the pack size, normalised to g or ml.
+
+    Multipacks are totalled: "6 x 330ml" → 1980 ml.
+    """
+    value: float
+    unit: Literal["g", "ml"]
+
+
 class ProductDetail(BaseModel):
-    """Full product detail from BOP endpoint."""
+    """Full product detail from BOP endpoint.
+
+    `found` is False when Morrisons no longer has the product (dead
+    retailerProductId); every other field is then empty.
+    """
     retailer_product_id: str
-    name: str
+    found: bool = Field(True, description="False if Morrisons has no product with this ID")
+    name: Optional[str] = None
     brand: Optional[str] = None
-    pack_size: Optional[str] = None
+    pack_size: Optional[str] = Field(None, description="Raw packSizeDescription, e.g. '6 x 330ml'")
+    net_quantity: Optional[NetQuantity] = Field(
+        None, description="Parsed pack size in g or ml, when parseable"
+    )
     price: Optional[float] = None
     nutrition_per_100g: Optional[NutritionPer100g] = None
     country_of_origin: Optional[str] = None
@@ -91,34 +115,3 @@ class RecipeCostResult(BaseModel):
     cost_excluding_pantry: float = Field(description="Total cost excluding pantry staples")
     cost_per_serving_excluding_pantry: Optional[float] = None
     unmatched_count: int = Field(description="Number of ingredients with no match")
-
-
-# --- Recipe Nutrition ---
-
-class IngredientNutrition(BaseModel):
-    """Nutrition data for a single matched ingredient."""
-    ingredient: str
-    matched_product: Optional[str] = None
-    pack_size: Optional[str] = None
-    nutrition_per_100g: Optional[NutritionPer100g] = None
-    nutrition_source: Optional[str] = Field(None, description="Where nutrition data came from: 'Morrisons', 'Open Food Facts', or 'USDA FoodData Central'")
-    on_hand: bool = Field(False, description="True if ingredient is a pantry staple the user already has")
-    estimated_weight_g: Optional[float] = Field(None, description="Estimated weight used from recipe")
-    estimated_kcal: Optional[float] = None
-    estimated_protein_g: Optional[float] = None
-    estimated_fat_g: Optional[float] = None
-    estimated_carbs_g: Optional[float] = None
-
-class RecipeNutritionResult(BaseModel):
-    """Complete nutrition analysis for a recipe."""
-    recipe_name: Optional[str] = None
-    servings: Optional[float] = None
-    ingredients: list[IngredientNutrition]
-    total_kcal: Optional[float] = None
-    total_protein_g: Optional[float] = None
-    total_fat_g: Optional[float] = None
-    total_carbs_g: Optional[float] = None
-    per_serving_kcal: Optional[float] = None
-    per_serving_protein_g: Optional[float] = None
-    per_serving_fat_g: Optional[float] = None
-    per_serving_carbs_g: Optional[float] = None

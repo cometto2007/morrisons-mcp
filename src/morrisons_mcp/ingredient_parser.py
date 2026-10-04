@@ -191,7 +191,7 @@ def parse_ingredient(raw: str) -> ParsedIngredient:
     # When there is a quantity but no unit and the number is > 20 (i.e. clearly
     # not a countable item count like "6 eggs" or "2 onions"), assume grams.
     # Quantities ≤ 20 are kept unitless so countable items (eggs, rashers, etc.)
-    # continue to use the per-item weight estimates in weight_estimator.py.
+    # stay counts.
     if quantity is not None and unit is None and quantity > 20:
         unit = "g"
 

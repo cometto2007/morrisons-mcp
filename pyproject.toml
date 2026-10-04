@@ -5,7 +5,7 @@ description = "MCP server for Morrisons grocery product search, recipe costing, 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=3.0.0",
+    "fastmcp>=3.0.0,<5",
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
     "rapidfuzz>=3.6.0",
