@@ -4,7 +4,10 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
+from fastmcp.exceptions import ToolError
+
 from morrisons_mcp.models import ProductResult
+from morrisons_mcp.morrison_client import MorrisonClient
 from morrisons_mcp.server import PICKER_URI, _picker_query, create_http_app, pick_products
 
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
@@ -42,6 +45,7 @@ def test_tool_advertises_ui_and_resource_serves_mcp_app_html(tmp_path, monkeypat
         res = _rpc(client, "resources/read", {"uri": PICKER_URI}, 2)["result"]["contents"][0]
         assert res["mimeType"] == "text/html;profile=mcp-app"
         assert "sendMessage" in res["text"] and "ontoolresult" in res["text"]
+        assert res["_meta"]["ui"]["csp"]["resourceDomains"] == ["https://unpkg.com", "https://groceries.morrisons.com"]
 
         listed = _rpc(client, "resources/list", {}, 3)["result"]["resources"]
         meta = next(r for r in listed if r["uri"] == PICKER_URI)["_meta"]["ui"]
@@ -78,8 +82,30 @@ async def test_pick_products_groups_candidates_per_ingredient():
 
 
 @pytest.mark.asyncio
-async def test_pick_products_caps_ingredients_and_results():
+async def test_pick_products_refuses_too_many_and_caps_results():
     fake = _FakeMorrison()
-    result = await pick_products([f"food {i}" for i in range(20)], _Ctx(fake), max_results=50)
-    assert len(result.ingredients) == 15
-    assert fake.queries[0][1] == 12
+    with pytest.raises(ToolError, match="At most 15"):
+        await pick_products([f"food {i}" for i in range(16)], _Ctx(fake))
+    assert fake.queries == []  # refused before any search
+    result = await pick_products(["garlic"], _Ctx(fake), max_results=50)
+    assert fake.queries[0][1] == 12 and len(result.ingredients[0].results) == 12
+
+
+@pytest.mark.asyncio
+async def test_pick_products_blank_name_is_an_empty_row_without_a_search():
+    fake = _FakeMorrison()
+    result = await pick_products(["  ", "garlic"], _Ctx(fake), max_results=2)
+    assert result.ingredients[0].results == [] and result.ingredients[0].query == ""
+    assert [q for q, _ in fake.queries] == ["garlic"]
+
+
+def test_tools_call_over_http_carries_url_in_structured_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("CACHE_DB_PATH", str(tmp_path / "cache.db"))
+    fake = _FakeMorrison()
+    monkeypatch.setattr(MorrisonClient, "search", fake.search)
+    with TestClient(create_http_app()) as client:
+        out = _rpc(client, "tools/call", {"name": "pick_products",
+                                          "arguments": {"ingredients": ["garlic"], "max_results": 2}}, 1)["result"]
+        row = out["structuredContent"]["ingredients"][0]
+        assert row["results"][0]["url"] == "https://groceries.morrisons.com/products/100000"
+        assert not out.get("isError")

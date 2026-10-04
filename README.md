@@ -105,6 +105,16 @@ cost_recipe(
 → { total_cost: 6.25, cost_per_serving: 1.56, unmatched_count: 0, ingredients: [...] }
 ```
 
+**Pick products (MCP App):**
+```
+pick_products(["chopped tomatoes", "garlic"], max_results=8)
+→ { ingredients: [ { ingredient: "chopped tomatoes", query: "chopped tomatoes", results: [ { name, pack_size, price, image_url, url, ... }, ... ] }, ... ] }
+# In the Claude app the cards render in the chat; Submit posts, as the user:
+#   Morrisons picks:
+#   - chopped tomatoes → Morrisons Chopped Tomatoes (400g) (id 105415501, https://groceries.morrisons.com/products/105415501)
+#   - garlic: none of these
+```
+
 ---
 
 ## Architecture
@@ -154,12 +164,13 @@ MORRISONS_LIVE=1 pytest tests/test_live_morrisons.py
 
 ```
 src/morrisons_mcp/
-├── server.py            # FastMCP app + 3 tool definitions
+├── server.py            # FastMCP app + 4 tool definitions
 ├── morrison_client.py   # Morrisons search + BOP API client
 ├── session_manager.py   # Cookie/session acquisition + refresh
 ├── cache.py             # SQLite async cache (aiosqlite)
 ├── ingredient_parser.py # "500g chicken breast" → ParsedIngredient
 ├── fuzzy_matcher.py     # Match ingredients to products (rapidfuzz)
+├── picker_html.py       # The pick_products MCP App page (ui://morrisons/picker)
 ├── mealie_client.py     # Optional Mealie pantry-staple check (cost_recipe)
 ├── nutrition_parser.py  # Per-100 g/ml label parsing + net quantity
 └── models.py            # All Pydantic data models

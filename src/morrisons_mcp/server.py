@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastmcp import FastMCP, Context
+from fastmcp.exceptions import ToolError
 from fastmcp.apps import AppConfig, ResourceCSP
 
 from .cache import ProductCache
@@ -414,26 +415,28 @@ async def pick_products(ingredients: list[str], ctx: Context, max_results: int =
     """
     Show product cards (photo, name, size, price) for each ingredient so the
     user can tap the product they buy. In a client that renders MCP Apps the
-    user's picks come back into the chat as their own message
-    ("Morrisons picks: ingredient → product (id, url)"); use each url with
-    PrepTrack add_product_link. In other clients the result is plain data:
-    the same candidates per ingredient.
-
-    Call it only for ingredients whose food has no Morrisons product link yet.
+    user's picks come back into the chat as their own message, one line per
+    ingredient: "- <ingredient> → <product name> (id <retailerProductId>, <url>)",
+    or "none of these" / "not chosen". Each url is that product's page, the
+    link to store against the ingredient in the user's recipe app. In other
+    clients the result is plain data: the same candidates per ingredient.
 
     Args:
         ingredients: Food names without quantities (e.g. "chopped tomatoes"), at most 15
         max_results: Candidates per ingredient (default 8, max 12)
     """
+    if len(ingredients) > PICKER_MAX_INGREDIENTS:
+        raise ToolError(f"At most {PICKER_MAX_INGREDIENTS} ingredients per call; split the list.")
     morrison: MorrisonClient = ctx.lifespan_context["morrison"]
     rows: list[IngredientChoices] = []
-    for ingredient in ingredients[:PICKER_MAX_INGREDIENTS]:
+    for ingredient in ingredients:
         query = _picker_query(ingredient)
-        try:
-            results = await morrison.search(query, max_results=max(1, min(max_results, 12)))
-        except Exception as e:
-            logger.error(f"pick_products search failed for '{query}': {e}")
-            results = []
+        results: list[ProductResult] = []
+        if query:  # a blank name gets an empty row, not a search for ""
+            try:
+                results = await morrison.search(query, max_results=max(1, min(max_results, 12)))
+            except Exception as e:
+                logger.error(f"pick_products search failed for '{query}': {e}")
         rows.append(IngredientChoices(ingredient=ingredient, query=query, results=results))
     return ProductPicks(ingredients=rows)
 
