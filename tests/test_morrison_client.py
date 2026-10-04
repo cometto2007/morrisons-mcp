@@ -67,7 +67,7 @@ async def test_product_detail_parses_label_and_net_quantity(client):
     n = d.nutrition_per_100g
     assert n.basis == "100ml"
     assert n.energy_kcal == 46 and n.sugars_g == 11.4 and n.salt_g == 0.01
-    assert await _cached_keys(client.cache) == ["bop_v2:100162517"]
+    assert await _cached_keys(client.cache) == ["bop_v3:100162517"]
 
 
 @pytest.mark.parametrize(

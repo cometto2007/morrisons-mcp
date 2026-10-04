@@ -90,9 +90,10 @@ logger = logging.getLogger(__name__)
 async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     _configure_logging()
     cache = ProductCache(db_path=os.getenv("CACHE_DB_PATH", "/data/cache.db"))
-    # Drop pre-v2 product rows (could hold per-serving figures or "Unknown"
-    # products); they are never read again under the bop_v2: key.
-    await cache.delete_prefix("bop:")
+    # Drop product rows from older parser versions (e.g. without basis_note);
+    # they are never read again under the current key.
+    for stale in ("bop:", "bop_v2:"):
+        await cache.delete_prefix(stale)
     # Rows left by the removed recipe-nutrition fallback (Open Food Facts/USDA)
     await cache.delete_prefix("fallback")
     morrison = MorrisonClient(cache=cache)
