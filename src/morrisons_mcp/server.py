@@ -293,7 +293,8 @@ async def get_product_detail(retailer_product_id: str, ctx: Context) -> ProductD
     be "as consumed" (cooked), e.g. a whole chicken's 27.3 g protein is cooked
     meat, so don't assume raw weight; check `basis_note`. Also returns the
     label's `ingredients` list as text (null for unlabelled foods such as fresh
-    meat or produce), `dietary` labels (e.g. Vegetarian, Vegan), the raw
+    meat or produce) with the `allergens` it prints in bold, Morrisons'
+    `label_icons` (e.g. Vegetarian, Vegan; only what Morrisons shows), the raw
     `pack_size`, a parsed `net_quantity` {value, unit} in g or ml, price,
     origin, storage and cooking info.
 

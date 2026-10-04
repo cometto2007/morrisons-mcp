@@ -16,10 +16,9 @@ BOP_URL = "https://groceries.morrisons.com/api/webproductpagews/v5/products/bop"
 
 _SEARCH_TTL = 3600    # 1 hour
 _BOP_TTL = 86400      # 24 hours
-# Bump when the cached ProductDetail shape or parsing rules change, so stale
-# entries (e.g. per-serving figures, "Unknown" products) are not served.
-# Bump when the parsed product shape changes, so stale parses are never served.
-_BOP_CACHE_PREFIX = "bop_v4:"  # bump whenever ProductDetail's parsed shape changes
+# Bump whenever ProductDetail's shape or parsing rules change, and add the old
+# prefix to the startup cleanup in server.py, so stale parses are never served.
+_BOP_CACHE_PREFIX = "bop_v4:"
 # The BOP field holding the nutrition table.
 _NUTRITION_FIELD = "nutritionalData"
 
@@ -74,21 +73,37 @@ def _parse_image(image_data) -> str | None:
     return None
 
 
-def _html_text(html: str | None) -> str | None:
-    """Label text with markup removed; None when empty."""
+def _parse_ingredients(html: str | None) -> tuple[str | None, list[str]]:
+    """The label's ingredient list as text, plus the allergens it emphasises.
+
+    UK labels print allergens in bold; Morrisons sends them as <b> (or
+    <strong>). Inline tags must not add spaces ("(Milk)", not "( Milk )"),
+    while line/block breaks must, so "Water,<br />Sugar" reads "Water, Sugar".
+    """
     if not html:
-        return None
-    text = " ".join(BeautifulSoup(html, "html.parser").get_text(" ").split())
-    return text or None
+        return None, []
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all(["br", "p", "li", "div", "tr"]):
+        tag.insert_before(" ")
+    allergens: list[str] = []
+    for tag in soup.find_all(["b", "strong"]):
+        name = " ".join(tag.get_text().split())
+        if name and name not in allergens:
+            allergens.append(name)
+    text = " ".join(soup.get_text("").split())
+    return (text or None), allergens
 
 
-def _parse_dietary(product: dict) -> list[str]:
-    """Dietary labels from the product's icon attributes (Vegetarian, Vegan, ...)."""
-    labels = []
-    for attr in product.get("iconAttributes") or []:
-        label = (attr or {}).get("label") if isinstance(attr, dict) else None
-        if label and label not in labels:
-            labels.append(label)
+def _parse_label_icons(product: dict) -> list[str]:
+    """Morrisons' icon badges on the product (Vegetarian, Vegan, ...). Untrusted shape."""
+    attrs = product.get("iconAttributes")
+    if not isinstance(attrs, list):
+        return []
+    labels: list[str] = []
+    for attr in attrs:
+        label = attr.get("label") if isinstance(attr, dict) else None
+        if isinstance(label, str) and label.strip() and label.strip() not in labels:
+            labels.append(label.strip())
     return labels
 
 
@@ -253,6 +268,7 @@ class MorrisonClient:
                 fields[title] = content
 
         nutrition = parse_nutrition_html(fields.get(_NUTRITION_FIELD))
+        ingredients, allergens = _parse_ingredients(fields.get("Ingredients") or fields.get("ingredients"))
 
         # Parse promotions from bopPromotions
         promos = []
@@ -274,8 +290,9 @@ class MorrisonClient:
             net_quantity=parse_net_quantity(pack_size),
             price=price,
             nutrition_per_100g=nutrition,
-            ingredients=_html_text(fields.get("Ingredients") or fields.get("ingredients")),
-            dietary=_parse_dietary(prod),
+            ingredients=ingredients,
+            allergens=allergens,
+            label_icons=_parse_label_icons(prod),
             country_of_origin=fields.get("Country of Origin") or fields.get("countryOfOrigin"),
             storage=fields.get("Storage") or fields.get("storageAndUsage") or fields.get("storage"),
             cooking_guidelines=fields.get("Cooking Guidelines") or fields.get("cookingGuidelines"),

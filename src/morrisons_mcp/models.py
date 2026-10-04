@@ -115,8 +115,13 @@ class ProductDetail(BaseModel):
     ingredients: Optional[str] = Field(
         None, description="The label's ingredient list as text, e.g. 'Tomato (65%), Concentrated Tomato Juice, ...'; null when the label has none (fresh meat, produce)"
     )
-    dietary: list[str] = Field(
-        default_factory=list, description="Dietary labels Morrisons shows for the product, e.g. ['Vegetarian', 'Vegan']"
+    allergens: list[str] = Field(
+        default_factory=list,
+        description="Ingredients the label emphasises as allergens (printed in bold), in label order, e.g. ['Milk', 'Cashew Nuts']; empty when the label marks none or has no ingredient list",
+    )
+    label_icons: list[str] = Field(
+        default_factory=list,
+        description="Morrisons' icon badges on the product, e.g. ['Vegetarian', 'Vegan']. Only what Morrisons chose to show: an empty list is not a statement of unsuitability, and this is not an allergen list (see allergens)",
     )
     country_of_origin: Optional[str] = None
     storage: Optional[str] = None
