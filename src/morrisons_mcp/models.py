@@ -43,9 +43,8 @@ class ProductResult(BaseModel):
 class NutritionPer100g(BaseModel):
     """Nutritional values per 100 g or per 100 ml (see `basis`).
 
-    Morrisons values come only from the label column headed "per 100g" or
-    "per 100ml"; per-serving columns are never used. Fallback sources
-    (Open Food Facts, USDA) are per 100 g.
+    Values come only from the label column headed "per 100g" or "per 100ml";
+    per-serving columns are never used.
     """
     basis: Literal["100g", "100ml"] = Field(
         "100g", description="What the figures are per: 100 grams or 100 millilitres"
@@ -116,34 +115,3 @@ class RecipeCostResult(BaseModel):
     cost_excluding_pantry: float = Field(description="Total cost excluding pantry staples")
     cost_per_serving_excluding_pantry: Optional[float] = None
     unmatched_count: int = Field(description="Number of ingredients with no match")
-
-
-# --- Recipe Nutrition ---
-
-class IngredientNutrition(BaseModel):
-    """Nutrition data for a single matched ingredient."""
-    ingredient: str
-    matched_product: Optional[str] = None
-    pack_size: Optional[str] = None
-    nutrition_per_100g: Optional[NutritionPer100g] = None
-    nutrition_source: Optional[str] = Field(None, description="Where nutrition data came from: 'Morrisons', 'Open Food Facts', or 'USDA FoodData Central'")
-    on_hand: bool = Field(False, description="True if ingredient is a pantry staple the user already has")
-    estimated_weight_g: Optional[float] = Field(None, description="Estimated weight used from recipe")
-    estimated_kcal: Optional[float] = None
-    estimated_protein_g: Optional[float] = None
-    estimated_fat_g: Optional[float] = None
-    estimated_carbs_g: Optional[float] = None
-
-class RecipeNutritionResult(BaseModel):
-    """Complete nutrition analysis for a recipe."""
-    recipe_name: Optional[str] = None
-    servings: Optional[float] = None
-    ingredients: list[IngredientNutrition]
-    total_kcal: Optional[float] = None
-    total_protein_g: Optional[float] = None
-    total_fat_g: Optional[float] = None
-    total_carbs_g: Optional[float] = None
-    per_serving_kcal: Optional[float] = None
-    per_serving_protein_g: Optional[float] = None
-    per_serving_fat_g: Optional[float] = None
-    per_serving_carbs_g: Optional[float] = None

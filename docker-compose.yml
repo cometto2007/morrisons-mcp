@@ -5,7 +5,6 @@ services:
     restart: unless-stopped
     environment:
       CACHE_DB_PATH: /data/cache.db
-      USDA_FDC_API_KEY: ${USDA_FDC_API_KEY:-DEMO_KEY}
     volumes:
       - morrisons_data:/data
     networks:

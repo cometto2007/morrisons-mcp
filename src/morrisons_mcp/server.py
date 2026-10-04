@@ -67,16 +67,12 @@ _QUALIFIER_STRIP_PATTERNS = [
     r'\bskimmed\b',
     r'\bsemi[\s-]skimmed\b',
 ]
-from .nutrition_fallback import get_fallback_nutrition
-from .weight_estimator import estimate_weight_grams
 from .models import (
     ParsedIngredient,
     ProductResult,
     ProductDetail,
     IngredientCost,
     RecipeCostResult,
-    IngredientNutrition,
-    RecipeNutritionResult,
 )
 
 
@@ -97,11 +93,13 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     # Drop pre-v2 product rows (could hold per-serving figures or "Unknown"
     # products); they are never read again under the bop_v2: key.
     await cache.delete_prefix("bop:")
+    # Rows left by the removed recipe-nutrition fallback (Open Food Facts/USDA)
+    await cache.delete_prefix("fallback")
     morrison = MorrisonClient(cache=cache)
     mealie = MealieClient(cache=cache)
     logger.info("Morrisons MCP server starting up")
     try:
-        yield {"morrison": morrison, "cache": cache, "mealie": mealie}
+        yield {"morrison": morrison, "mealie": mealie}
     finally:
         await mealie.close()
         await morrison.close()
@@ -379,122 +377,6 @@ async def cost_recipe(
             round(total_excluding_pantry / servings, 2) if servings and servings > 0 else None
         ),
         unmatched_count=unmatched,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Tool 4: get_recipe_nutrition
-# ---------------------------------------------------------------------------
-
-@mcp.tool
-async def get_recipe_nutrition(
-    ingredients: list[str],
-    ctx: Context,
-    servings: float | None = None,
-    recipe_name: str | None = None,
-) -> RecipeNutritionResult:
-    """
-    Calculate nutrition for a recipe by matching ingredients to Morrisons products
-    and fetching their BOP nutrition data.
-    Returns total and per-serving kcal, protein, fat, and carbs.
-
-    Args:
-        ingredients: List of ingredient strings with quantities (e.g. ["500g chicken breast"])
-        servings: Number of servings for per-serving calculation
-        recipe_name: Optional recipe name
-    """
-    morrison: MorrisonClient = ctx.lifespan_context["morrison"]
-    mealie: MealieClient = ctx.lifespan_context["mealie"]
-
-    results = []
-    total_kcal: float = 0.0
-    total_protein: float = 0.0
-    total_fat: float = 0.0
-    total_carbs: float = 0.0
-    has_kcal = has_protein = has_fat = has_carbs = False
-
-    for ing_str in ingredients:
-        parsed = parse_ingredient(ing_str)
-        on_hand = await mealie.is_pantry_staple(parsed.name)
-        if not on_hand and parsed.search_query != parsed.name.lower():
-            on_hand = await mealie.is_pantry_staple(parsed.search_query)
-        ing_nutrition = IngredientNutrition(ingredient=ing_str, on_hand=on_hand)
-
-        try:
-            match, confidence = await _match_with_synonym_fallback(parsed, morrison)
-        except Exception as e:
-            logger.error(f"Error matching '{parsed.search_query}': {e}")
-            results.append(ing_nutrition)
-            continue
-
-        if match and confidence >= 0.4:
-            try:
-                detail = await morrison.get_product_detail(match.retailer_product_id)
-            except Exception as e:
-                logger.error(f"Error fetching BOP for '{match.retailer_product_id}': {e}")
-                results.append(ing_nutrition)
-                continue
-
-            ing_nutrition.matched_product = match.name
-            ing_nutrition.pack_size = match.pack_size
-
-            nutrition = detail.nutrition_per_100g
-            nutrition_source = "Morrisons"
-
-            # Fallback if Morrisons has no nutrition data
-            if nutrition is None or nutrition.energy_kcal is None:
-                cache: ProductCache = ctx.lifespan_context["cache"]
-                fallback_nutrition, fallback_source = await get_fallback_nutrition(
-                    parsed.search_query, cache=cache,
-                )
-                if fallback_nutrition:
-                    nutrition = fallback_nutrition
-                    nutrition_source = fallback_source
-
-            ing_nutrition.nutrition_per_100g = nutrition
-            ing_nutrition.nutrition_source = nutrition_source if nutrition else None
-
-            weight_g = estimate_weight_grams(parsed, matched_product=match)
-            ing_nutrition.estimated_weight_g = weight_g
-
-            if weight_g is not None and nutrition:
-                n = nutrition
-                factor = weight_g / 100.0
-
-                if n.energy_kcal is not None:
-                    ing_nutrition.estimated_kcal = round(n.energy_kcal * factor, 1)
-                    total_kcal += ing_nutrition.estimated_kcal
-                    has_kcal = True
-
-                if n.protein_g is not None:
-                    ing_nutrition.estimated_protein_g = round(n.protein_g * factor, 1)
-                    total_protein += ing_nutrition.estimated_protein_g
-                    has_protein = True
-
-                if n.fat_g is not None:
-                    ing_nutrition.estimated_fat_g = round(n.fat_g * factor, 1)
-                    total_fat += ing_nutrition.estimated_fat_g
-                    has_fat = True
-
-                if n.carbohydrate_g is not None:
-                    ing_nutrition.estimated_carbs_g = round(n.carbohydrate_g * factor, 1)
-                    total_carbs += ing_nutrition.estimated_carbs_g
-                    has_carbs = True
-
-        results.append(ing_nutrition)
-
-    return RecipeNutritionResult(
-        recipe_name=recipe_name,
-        servings=servings,
-        ingredients=results,
-        total_kcal=round(total_kcal, 1) if has_kcal else None,
-        total_protein_g=round(total_protein, 1) if has_protein else None,
-        total_fat_g=round(total_fat, 1) if has_fat else None,
-        total_carbs_g=round(total_carbs, 1) if has_carbs else None,
-        per_serving_kcal=round(total_kcal / servings, 1) if servings and has_kcal else None,
-        per_serving_protein_g=round(total_protein / servings, 1) if servings and has_protein else None,
-        per_serving_fat_g=round(total_fat / servings, 1) if servings and has_fat else None,
-        per_serving_carbs_g=round(total_carbs / servings, 1) if servings and has_carbs else None,
     )
 
 

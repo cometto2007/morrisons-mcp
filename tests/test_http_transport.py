@@ -33,9 +33,7 @@ def test_initialize_and_list_tools_over_post_mcp(tmp_path, monkeypatch):
         # Stateless: no session id needs to be carried between requests
         tools = _rpc(client, "tools/list", {}, 2)
         names = {t["name"] for t in tools["result"]["tools"]}
-        assert names == {
-            "search_products", "get_product_detail", "cost_recipe", "get_recipe_nutrition",
-        }
+        assert names == {"search_products", "get_product_detail", "cost_recipe"}
 
         # The SSE endpoint is gone
         assert client.get("/sse").status_code == 404

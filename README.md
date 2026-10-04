@@ -1,6 +1,6 @@
 # Morrisons MCP Server
 
-A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery data and exposes tools for product search, recipe costing, and nutrition analysis. Enables Claude.ai to answer questions like "how much will this recipe cost at Morrisons?" or "what are the macros for this meal plan?"
+A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery data and exposes tools for product search, per-product label nutrition, and recipe costing. Answers questions like "how much will this recipe cost at Morrisons?" or "what does this product's label say per 100 g?"
 
 ---
 
@@ -11,7 +11,6 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `search_products` | Search Morrisons products by keyword. Returns price, unit price, promotions, pack size, category. |
 | `get_product_detail` | Full product detail: per-100 g/ml nutrition from the label, raw and parsed pack size, price, origin, storage. Returns `found: false` for a gone product. |
 | `cost_recipe` | Cost a recipe from a list of ingredient strings. Returns total cost + per-ingredient breakdown. |
-| `get_recipe_nutrition` | Match recipe ingredients to Morrisons products and estimate total/per-serving nutrition. |
 
 ### `get_product_detail` response
 
@@ -29,8 +28,6 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 
 Morrisons' product payload carries no GTIN/EAN, so none is returned.
 
-`get_recipe_nutrition` scales per-100 figures by an estimated ingredient weight in grams; for a `100ml` label it approximates 1 ml as 1 g.
-
 ---
 
 ## Setup
@@ -47,8 +44,7 @@ All optional. Copy `.env.example` to `.env` to set them.
 |----------|-------------|---------|
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING) | `INFO` |
 | `CACHE_DB_PATH` | SQLite cache file | `/data/cache.db` |
-| `USDA_FDC_API_KEY` | USDA FoodData Central key for the recipe-nutrition fallback | `DEMO_KEY` |
-| `MEALIE_URL`, `MEALIE_API_KEY` | Enable the Mealie pantry-staple check in `cost_recipe` / `get_recipe_nutrition`. The check is off unless both are set. | unset |
+| `MEALIE_URL`, `MEALIE_API_KEY` | Enable the Mealie pantry-staple check in `cost_recipe`. The check is off unless both are set. | unset |
 
 ### Docker (recommended)
 
@@ -103,15 +99,6 @@ cost_recipe(
 → { total_cost: 6.25, cost_per_serving: 1.56, unmatched_count: 0, ingredients: [...] }
 ```
 
-**Get recipe nutrition:**
-```
-get_recipe_nutrition(
-    ingredients=["500g chicken breast", "200g rice"],
-    servings=4
-)
-→ { total_kcal: 1020.0, per_serving_kcal: 255.0, total_protein_g: 148.0, ... }
-```
-
 ---
 
 ## Architecture
@@ -161,12 +148,13 @@ MORRISONS_LIVE=1 pytest tests/test_live_morrisons.py
 
 ```
 src/morrisons_mcp/
-├── server.py            # FastMCP app + 4 tool definitions
+├── server.py            # FastMCP app + 3 tool definitions
 ├── morrison_client.py   # Morrisons search + BOP API client
 ├── session_manager.py   # Cookie/session acquisition + refresh
 ├── cache.py             # SQLite async cache (aiosqlite)
 ├── ingredient_parser.py # "500g chicken breast" → ParsedIngredient
 ├── fuzzy_matcher.py     # Match ingredients to products (rapidfuzz)
+├── mealie_client.py     # Optional Mealie pantry-staple check (cost_recipe)
 ├── nutrition_parser.py  # Per-100 g/ml label parsing + net quantity
 └── models.py            # All Pydantic data models
 ```
