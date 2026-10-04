@@ -126,7 +126,7 @@ The server caches API responses in SQLite to reduce load on the Morrisons websit
 | Cache type | TTL | Cache key |
 |------------|-----|-----------|
 | Search results | 1 hour (3600s) | `search:{normalised_query}` |
-| Product BOP/nutrition | 24 hours (86400s) | `bop_v2:{retailerProductId}` (found products only) |
+| Product BOP/nutrition | 24 hours (86400s) | `bop_v3:{retailerProductId}` (found products only) |
 
 The SQLite database is stored at `/data/cache.db`, backed by a Docker named volume (`morrisons_data`) for persistence across container restarts.
 

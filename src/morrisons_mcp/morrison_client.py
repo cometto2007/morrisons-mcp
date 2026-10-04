@@ -16,7 +16,8 @@ _SEARCH_TTL = 3600    # 1 hour
 _BOP_TTL = 86400      # 24 hours
 # Bump when the cached ProductDetail shape or parsing rules change, so stale
 # entries (e.g. per-serving figures, "Unknown" products) are not served.
-_BOP_CACHE_PREFIX = "bop_v2:"
+# Bump when the parsed product shape changes, so stale parses are never served.
+_BOP_CACHE_PREFIX = "bop_v3:"
 # The BOP field holding the nutrition table.
 _NUTRITION_FIELD = "nutritionalData"
 
