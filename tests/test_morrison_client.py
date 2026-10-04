@@ -23,10 +23,12 @@ BOP_OK = {
         "brand": "Coca-Cola",
         "packSizeDescription": "500ml",
         "price": {"amount": "1.85", "currency": "GBP"},
+        "iconAttributes": [{"label": "Vegetarian", "file": "vegetarian"}, {"label": "Vegan", "file": "vegan"}],
     },
     "bopData": {
         "fields": [
             {"title": "brand", "content": "Coca-Cola"},
+            {"title": "ingredients", "content": "Carbonated Water, Sugar, Colour (Caramel E150d),<br />Flavourings including <strong>Caffeine</strong>"},
             # A non-nutrition field with a table must not be mistaken for the label
             {"title": "otherInformation", "content": "<table><tr><td>x</td><td>1g</td></tr></table>"},
             {"title": "nutritionalData", "content": PER_100ML_LABEL},
@@ -67,7 +69,10 @@ async def test_product_detail_parses_label_and_net_quantity(client):
     n = d.nutrition_per_100g
     assert n.basis == "100ml"
     assert n.energy_kcal == 46 and n.sugars_g == 11.4 and n.salt_g == 0.01
-    assert await _cached_keys(client.cache) == ["bop_v3:100162517"]
+    assert await _cached_keys(client.cache) == ["bop_v4:100162517"]
+    assert d.ingredients == "Carbonated Water, Sugar, Colour (Caramel E150d), Flavourings including Caffeine"
+    assert d.dietary == ["Vegetarian", "Vegan"]
+
 
 
 @pytest.mark.parametrize(
@@ -110,3 +115,11 @@ async def test_tool_returns_found_false_for_dead_product(client):
     assert result.found is False
     assert result.retailer_product_id == "999999999999"
     assert result.name is None and result.nutrition_per_100g is None
+
+
+async def test_unlabelled_product_has_no_ingredients(client):
+    payload = {**BOP_OK, "product": {**BOP_OK["product"], "iconAttributes": []},
+               "bopData": {"fields": [f for f in BOP_OK["bopData"]["fields"] if f["title"] != "ingredients"]}}
+    client.session.request = AsyncMock(return_value=_resp(200, payload))
+    detail = await client.get_product_detail("100162517")
+    assert detail.ingredients is None and detail.dietary == []

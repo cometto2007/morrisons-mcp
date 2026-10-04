@@ -2,6 +2,8 @@ import json
 import logging
 import re
 
+from bs4 import BeautifulSoup
+
 from .session_manager import SessionManager
 from .cache import ProductCache
 from .nutrition_parser import parse_net_quantity, parse_nutrition_html
@@ -17,7 +19,7 @@ _BOP_TTL = 86400      # 24 hours
 # Bump when the cached ProductDetail shape or parsing rules change, so stale
 # entries (e.g. per-serving figures, "Unknown" products) are not served.
 # Bump when the parsed product shape changes, so stale parses are never served.
-_BOP_CACHE_PREFIX = "bop_v3:"
+_BOP_CACHE_PREFIX = "bop_v4:"  # bump whenever ProductDetail's parsed shape changes
 # The BOP field holding the nutrition table.
 _NUTRITION_FIELD = "nutritionalData"
 
@@ -70,6 +72,24 @@ def _parse_image(image_data) -> str | None:
     if isinstance(image_data, str):
         return image_data
     return None
+
+
+def _html_text(html: str | None) -> str | None:
+    """Label text with markup removed; None when empty."""
+    if not html:
+        return None
+    text = " ".join(BeautifulSoup(html, "html.parser").get_text(" ").split())
+    return text or None
+
+
+def _parse_dietary(product: dict) -> list[str]:
+    """Dietary labels from the product's icon attributes (Vegetarian, Vegan, ...)."""
+    labels = []
+    for attr in product.get("iconAttributes") or []:
+        label = (attr or {}).get("label") if isinstance(attr, dict) else None
+        if label and label not in labels:
+            labels.append(label)
+    return labels
 
 
 def _parse_product(product: dict) -> ProductResult | None:
@@ -254,6 +274,8 @@ class MorrisonClient:
             net_quantity=parse_net_quantity(pack_size),
             price=price,
             nutrition_per_100g=nutrition,
+            ingredients=_html_text(fields.get("Ingredients") or fields.get("ingredients")),
+            dietary=_parse_dietary(prod),
             country_of_origin=fields.get("Country of Origin") or fields.get("countryOfOrigin"),
             storage=fields.get("Storage") or fields.get("storageAndUsage") or fields.get("storage"),
             cooking_guidelines=fields.get("Cooking Guidelines") or fields.get("cookingGuidelines"),

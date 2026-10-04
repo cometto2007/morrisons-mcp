@@ -26,6 +26,8 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `nutrition_per_100g.basis` | `"100g"` or `"100ml"`. Drinks are usually `"100ml"`; the figures are then per 100 ml, not per 100 g. |
 | `nutrition_per_100g.basis_note` | The per-100 column header's qualifier, lowercase: `"as consumed"`, `"as sold"`, `"prepared"` (also "when prepared", "made up"), `"cooked"`, `"raw"` (also "uncooked"), `"drained"`, or a bracketed cooking method such as `"grilled"` from "per 100g (grilled)". `null` when the header has none. Figures may be **as consumed (cooked)**: the whole chicken's label is "(as consumed) per 100g", so don't assume raw weight. |
 | `nutrition_per_100g.*` | `energy_kj`, `energy_kcal`, `fat_g`, `saturates_g`, `carbohydrate_g`, `sugars_g`, `fibre_g`, `protein_g`, `salt_g`. Each is `null` if the label lacks it. `nil`/`trace` read as 0; `<0.1g` reads as half the bound (0.05). |
+| `ingredients` | The label's ingredient list as text, markup removed (`"Tomato (65%), Concentrated Tomato Juice, Acidity Regulator (Citric Acid)"`). `null` when the label has none: fresh meat, fruit and vegetables. |
+| `dietary` | Labels Morrisons shows for the product, e.g. `["Vegetarian", "Vegan"]`; empty when none. |
 | `country_of_origin`, `storage`, `cooking_guidelines`, `features`, `servings_info`, `promotions` | Label text where present. |
 
 Morrisons' product payload carries no GTIN/EAN, so none is returned.
