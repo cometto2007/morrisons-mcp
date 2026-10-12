@@ -48,17 +48,20 @@ def _parse_unit_price(unit_price_data) -> str | None:
     """
     Parse unitPrice object:
       {'price': {'amount': '10.00', 'currency': 'GBP'}, 'unit': 'fop.price.per.kg'}
-    → '£10.00/kg'
+    → '£10.00/kg'. Per-each prices come in pence (currency 'GBX'):
+      {'price': {'amount': '45.8', 'currency': 'GBX'}, 'unit': 'fop.price.per.each'} → '45.8p/each'
     """
     if not isinstance(unit_price_data, dict):
         return None
     try:
-        amount = unit_price_data.get("price", {}).get("amount")
+        price = unit_price_data.get("price", {})
+        amount = price.get("amount")
         unit = unit_price_data.get("unit", "")
         # Strip 'fop.price.per.' prefix to get the human unit
         unit = re.sub(r"^fop\.price\.per\.", "", unit)
         if amount:
-            return f"£{amount}/{unit}" if unit else f"£{amount}"
+            money = f"{amount}p" if price.get("currency") == "GBX" else f"£{amount}"
+            return f"{money}/{unit}" if unit else money
     except Exception:
         pass
     return None
@@ -107,15 +110,23 @@ def _parse_label_icons(product: dict) -> list[str]:
     return labels
 
 
+def _bop_promotions(data: dict) -> list[Promotion]:
+    """Offers listed beside the BOP product (`bopPromotions`), as Promotions."""
+    return [
+        Promotion(description=p.get("longDescription") or p.get("description") or "")
+        for p in data.get("bopPromotions") or []
+    ]
+
+
 def _parse_product(product: dict) -> ProductResult | None:
-    """Parse a single decorated product dict from the search response."""
+    """Parse a decorated product dict: a search result, or the BOP payload's `product`."""
     pid = product.get("productId")
     if not pid:
         return None
 
-    # Parse promotions
+    # Parse promotions (the BOP product sends null, not [])
     promos = []
-    for p in product.get("promotions", []):
+    for p in product.get("promotions") or []:
         desc = p.get("description", "")
         promo_price = None
         try:
@@ -227,6 +238,74 @@ class MorrisonClient:
         if cached is not None:
             return ProductDetail.model_validate(cached)
 
+        data, prod = await self._fetch_bop(retailer_product_id)
+
+        # BOP fields use 'title' / 'content' (not 'name' / 'value')
+        fields: dict[str, str] = {}
+        for field in (data.get("bopData") or {}).get("fields", []):
+            title = field.get("title") or field.get("name") or ""
+            content = field.get("content") or field.get("value") or ""
+            if title:
+                fields[title] = content
+
+        nutrition = parse_nutrition_html(fields.get(_NUTRITION_FIELD))
+        ingredients, allergens = _parse_ingredients(fields.get("Ingredients") or fields.get("ingredients"))
+
+        # Parse price from the nested product object
+        price_raw = prod.get("price")
+        price = _parse_price(price_raw) if price_raw else None
+        pack_size = prod.get("packSizeDescription")
+
+        detail = ProductDetail(
+            retailer_product_id=retailer_product_id,
+            name=prod["name"],
+            brand=prod.get("brand"),
+            pack_size=pack_size,
+            net_quantity=parse_net_quantity(pack_size),
+            price=price,
+            nutrition_per_100g=nutrition,
+            ingredients=ingredients,
+            allergens=allergens,
+            label_icons=_parse_label_icons(prod),
+            country_of_origin=fields.get("Country of Origin") or fields.get("countryOfOrigin"),
+            storage=fields.get("Storage") or fields.get("storageAndUsage") or fields.get("storage"),
+            cooking_guidelines=fields.get("Cooking Guidelines") or fields.get("cookingGuidelines"),
+            features=fields.get("Features") or fields.get("features"),
+            servings_info=fields.get("Other Information") or fields.get("otherInformation"),
+            promotions=_bop_promotions(data),
+        )
+
+        await self.cache.set(cache_key, detail.model_dump(), ttl=_BOP_TTL)
+
+        logger.info(f"BOP detail fetched for product {retailer_product_id}")
+        return detail
+
+    async def get_product(self, retailer_product_id: str) -> ProductResult:
+        """One product shaped like a search result: price, unit price, image and the
+        productId UUID a trolley needs. Cached like a search, since prices change.
+
+        Raises ProductNotFoundError when Morrisons no longer has it.
+        """
+        cache_key = f"product:{retailer_product_id}"
+        cached = await self.cache.get(cache_key)
+        if cached is not None:
+            return ProductResult.model_validate(cached)
+
+        data, prod = await self._fetch_bop(retailer_product_id)
+        product = _parse_product(prod)
+        if product is None:
+            raise RuntimeError(f"Morrisons sent product {retailer_product_id} without a productId.")
+        if not product.promotions:  # the BOP product's own list is null; offers sit beside it
+            product.promotions = _bop_promotions(data)
+        await self.cache.set(cache_key, product.model_dump(), ttl=_SEARCH_TTL)
+        return product
+
+    async def _fetch_bop(self, retailer_product_id: str) -> tuple[dict, dict]:
+        """The BOP payload and its `product` for one retailerProductId (not cached here).
+
+        Raises ProductNotFoundError when Morrisons has no such product (404, empty
+        payload, or a payload for a different product); not-found is never cached.
+        """
         params = {"retailerProductId": retailer_product_id}
         resp = await self.session.request("GET", BOP_URL, params=params)
         if resp.status_code == 404:
@@ -258,53 +337,7 @@ class MorrisonClient:
                 f"(got id={returned_id or None!r}): not found"
             )
             raise ProductNotFoundError(retailer_product_id)
-
-        # BOP fields use 'title' / 'content' (not 'name' / 'value')
-        fields: dict[str, str] = {}
-        for field in (data.get("bopData") or {}).get("fields", []):
-            title = field.get("title") or field.get("name") or ""
-            content = field.get("content") or field.get("value") or ""
-            if title:
-                fields[title] = content
-
-        nutrition = parse_nutrition_html(fields.get(_NUTRITION_FIELD))
-        ingredients, allergens = _parse_ingredients(fields.get("Ingredients") or fields.get("ingredients"))
-
-        # Parse promotions from bopPromotions
-        promos = []
-        for p in data.get("bopPromotions", []):
-            promos.append(Promotion(
-                description=p.get("longDescription") or p.get("description") or "",
-            ))
-
-        # Parse price from the nested product object
-        price_raw = prod.get("price")
-        price = _parse_price(price_raw) if price_raw else None
-        pack_size = prod.get("packSizeDescription")
-
-        detail = ProductDetail(
-            retailer_product_id=retailer_product_id,
-            name=prod["name"],
-            brand=prod.get("brand"),
-            pack_size=pack_size,
-            net_quantity=parse_net_quantity(pack_size),
-            price=price,
-            nutrition_per_100g=nutrition,
-            ingredients=ingredients,
-            allergens=allergens,
-            label_icons=_parse_label_icons(prod),
-            country_of_origin=fields.get("Country of Origin") or fields.get("countryOfOrigin"),
-            storage=fields.get("Storage") or fields.get("storageAndUsage") or fields.get("storage"),
-            cooking_guidelines=fields.get("Cooking Guidelines") or fields.get("cookingGuidelines"),
-            features=fields.get("Features") or fields.get("features"),
-            servings_info=fields.get("Other Information") or fields.get("otherInformation"),
-            promotions=promos,
-        )
-
-        await self.cache.set(cache_key, detail.model_dump(), ttl=_BOP_TTL)
-
-        logger.info(f"BOP detail fetched for product {retailer_product_id}")
-        return detail
+        return data, prod
 
     async def close(self) -> None:
         await self.session.close()

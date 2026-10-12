@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import os
 import re as _re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from urllib.parse import urlparse
 
 from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError
@@ -14,6 +16,7 @@ from .morrison_client import MorrisonClient, ProductNotFoundError
 from .ingredient_parser import parse_ingredient
 from .fuzzy_matcher import find_best_match, FRESH_PRODUCE_SYNONYMS, _FRESH_CATEGORY_KEYWORDS
 from .picker_html import EXT_APPS_ORIGIN, PICKER_HTML
+from .shop_html import SHOP_HTML
 
 # Pre-search query rewrites applied BEFORE hitting the Morrisons API.
 # Use this for queries that are known to return wrong product categories
@@ -78,6 +81,9 @@ from .models import (
     RecipeCostResult,
     IngredientChoices,
     ProductPicks,
+    ShopItem,
+    ShopRow,
+    ShopList,
 )
 
 
@@ -454,6 +460,118 @@ async def pick_products(ingredients: list[str], ctx: Context, max_results: int =
 )
 def picker_view() -> str:
     return PICKER_HTML
+
+
+# ---------------------------------------------------------------------------
+# Tool 5: shop_products (MCP App: choose what to buy, then fill the trolley)
+# ---------------------------------------------------------------------------
+
+SHOP_URI = "ui://morrisons/shop"
+SHOP_MAX_ITEMS = 40
+_PRODUCT_PATH = _re.compile(r"/products/(?:.*[/-])?(\d{6,})/?")
+
+
+def morrisons_product_id(link: str) -> str | None:
+    """The retailerProductId in a Morrisons product URL (slug or not) or a bare id; else None."""
+    text = link.strip()
+    if _re.fullmatch(r"\d{6,}", text):
+        return text
+    url = urlparse(text)
+    host = (url.hostname or "").lower()
+    if url.scheme not in ("http", "https") or not (host == "morrisons.com" or host.endswith(".morrisons.com")):
+        return None
+    match = _PRODUCT_PATH.fullmatch(url.path)
+    return match.group(1) if match else None
+
+
+async def _shop_row(item: ShopItem, morrison: MorrisonClient, max_results: int) -> ShopRow:
+    """One list line: its Usual products first, then alternatives from a search.
+
+    A failed search or lookup thins the row instead of failing the call. A Usual product
+    found in the search results is taken from there, saving a product lookup.
+    """
+    ids = list(dict.fromkeys(filter(None, map(morrisons_product_id, item.links))))
+    usual: dict[str, ProductResult] = {}
+    gone: list[str] = []
+
+    async def look_up(rid: str) -> None:
+        try:
+            usual[rid] = await morrison.get_product(rid)
+        except ProductNotFoundError:
+            gone.append(rid)
+        except Exception as e:
+            logger.error(f"shop_products lookup failed for {rid}: {e}")
+
+    name = " ".join(item.name.split())
+    if not name and ids:  # links only: the Main product's name drives the search
+        await look_up(ids[0])
+        name = usual[ids[0]].name if ids[0] in usual else ""
+    query = _picker_query(name) if name else ""
+    found: list[ProductResult] = []
+    if query:
+        try:
+            found = await morrison.search(query, max_results=30)
+        except Exception as e:
+            logger.error(f"shop_products search failed for '{query}': {e}")
+    in_search = {p.retailer_product_id: p for p in found}
+    for rid in ids:
+        if rid in in_search:
+            usual.setdefault(rid, in_search[rid])
+        elif rid not in usual and rid not in gone:
+            await look_up(rid)
+
+    usual_ids = [rid for rid in ids if rid in usual]
+    alternatives = [p for p in found if p.retailer_product_id not in usual][:max_results]
+    return ShopRow(
+        name=name or (f"Product {ids[0]}" if ids else "Item with no Morrisons link"),
+        query=query,
+        quantity=item.quantity,
+        amount=item.amount,
+        usual_ids=usual_ids,
+        gone_usual_ids=gone,
+        results=[usual[rid] for rid in usual_ids] + alternatives,
+    )
+
+
+@mcp.tool(app=AppConfig(resource_uri=SHOP_URI))
+async def shop_products(items: list[ShopItem], ctx: Context, max_results: int = 6) -> ShopList:
+    """
+    Show a shopping list as product cards so the user can choose what to buy and send
+    it to their own Morrisons trolley. Each item has a name (what to buy, e.g.
+    "chopped tomatoes") and/or links: the line's Usual products as Morrisons product
+    URLs or retailerProductIds, Main product first. Pass a shopping list's lines with
+    their saved product links (other shops' links are ignored), the packs to buy as
+    quantity (default 1) and the list's amount as amount (e.g. "1.2 kg", shown as a
+    hint). Usual products come first, badged and pre-ticked; the user can pick an
+    alternative, change packs, sort by price or unit price, or skip a line.
+
+    "Add to trolley" opens Morrisons in the user's browser, where their trolley
+    userscript asks for confirmation and adds the products with their own login. Nothing is bought until they check out. Nothing comes back to the chat.
+    In clients without MCP Apps the result is plain data: candidates per line, Usual
+    first (usual_ids), and Usual products Morrisons no longer sells (gone_usual_ids).
+
+    Args:
+        items: Shopping-list lines, at most 40
+        max_results: Alternatives per line besides its Usual products (default 6, max 12)
+    """
+    if len(items) > SHOP_MAX_ITEMS:
+        raise ToolError(f"At most {SHOP_MAX_ITEMS} items per call; split the list.")
+    morrison: MorrisonClient = ctx.lifespan_context["morrison"]
+    alternatives = max(0, min(max_results, 12))
+    rows = await asyncio.gather(*(_shop_row(item, morrison, alternatives) for item in items))
+    return ShopList(items=list(rows))
+
+
+@mcp.resource(
+    SHOP_URI,
+    name="Morrisons shopping list",
+    description="Interactive view for shop_products",
+    app=AppConfig(csp=ResourceCSP(
+        resource_domains=[EXT_APPS_ORIGIN, "https://groceries.morrisons.com"],
+    )),
+)
+def shop_view() -> str:
+    return SHOP_HTML
 
 
 # ---------------------------------------------------------------------------
