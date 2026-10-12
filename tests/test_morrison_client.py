@@ -195,3 +195,6 @@ def test_unit_price_in_pence_reads_as_pence():
     kg = {"price": {"amount": "7.00", "currency": "GBP"}, "unit": "fop.price.per.kg", "unitName": "PER_1KG"}
     assert _parse_unit_price(each) == "45.8p/each"  # eggs at £2.75 for 6, not £45.80 each
     assert _parse_unit_price(kg) == "£7.00/kg"
+    # Not only per each: own-brand passata, 45p for 500 g, is 90p per kg
+    cheap_kg = {"price": {"amount": "90.0", "currency": "GBX"}, "unit": "fop.price.per.kg", "unitName": "PER_1KG"}
+    assert _parse_unit_price(cheap_kg) == "90.0p/kg"

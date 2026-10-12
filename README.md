@@ -47,7 +47,7 @@ It returns `{ items: [{ name, query, quantity, amount, usual_ids, gone_usual_ids
 The view (`shop_html.py`, `ui://morrisons/shop`):
 
 - pre-ticks each line's first Usual product Morrisons can supply; a line without one starts skipped;
-- sorts the alternatives by best match, price, or unit price (£/kg, £/litre, pence each), with the Usual products always first;
+- sorts the alternatives by best match, price, or unit price (per kg, litre or each; Morrisons gives any unit price under £1 in pence, e.g. `90.0p/kg`), with the Usual products always first;
 - has a pack stepper per line and a running total (shelf prices, so `≈`; Morrisons applies offers in the trolley).
 
 **Add to trolley** calls `openLink` with:

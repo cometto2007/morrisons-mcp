@@ -48,8 +48,9 @@ def _parse_unit_price(unit_price_data) -> str | None:
     """
     Parse unitPrice object:
       {'price': {'amount': '10.00', 'currency': 'GBP'}, 'unit': 'fop.price.per.kg'}
-    → '£10.00/kg'. Per-each prices come in pence (currency 'GBX'):
+    → '£10.00/kg'. A unit price under £1 comes in pence (currency 'GBX'), whatever the unit:
       {'price': {'amount': '45.8', 'currency': 'GBX'}, 'unit': 'fop.price.per.each'} → '45.8p/each'
+      {'price': {'amount': '90.0', 'currency': 'GBX'}, 'unit': 'fop.price.per.kg'} → '90.0p/kg'
     """
     if not isinstance(unit_price_data, dict):
         return None
