@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 from typing import Literal, Optional
 
 
@@ -55,6 +55,38 @@ class IngredientChoices(BaseModel):
 class ProductPicks(BaseModel):
     """pick_products result: one row of candidates per ingredient."""
     ingredients: list[IngredientChoices]
+
+
+# --- Shopping (shop_products) ---
+
+class ShopItem(BaseModel):
+    """One line of a shopping list: a name to search, Usual product links, or both."""
+    name: str = Field("", description="What to buy as the list says it, e.g. 'chopped tomatoes'; searched for alternatives. May be empty when links are given.")
+    links: list[str] = Field(default_factory=list, description="The line's Usual products as Morrisons product URLs or retailerProductIds, Main product first. Other shops' links are ignored.")
+    quantity: int = Field(1, ge=1, le=99, description="Packs to buy of whichever product is chosen")
+    amount: Optional[str] = Field(None, max_length=40, description="How much the list needs, shown as a hint, e.g. '1.2 kg'")
+
+    @model_validator(mode="after")
+    def _name_or_links(self) -> "ShopItem":
+        if not self.name.strip() and not self.links:
+            raise ValueError("each item needs a name or at least one link")
+        return self
+
+
+class ShopRow(BaseModel):
+    """Candidates for one shopping-list line: its Usual products first, then alternatives."""
+    name: str = Field(description="The line's name, or its Usual product's name when only links were given")
+    query: str = Field(description="The search query used for alternatives ('' when none was possible)")
+    quantity: int
+    amount: Optional[str] = None
+    usual_ids: list[str] = Field(default_factory=list, description="retailerProductIds of the Usual products shown, Main first")
+    gone_usual_ids: list[str] = Field(default_factory=list, description="Usual products Morrisons no longer sells")
+    results: list[ProductResult] = Field(default_factory=list, description="Usual products first, then alternatives")
+
+
+class ShopList(BaseModel):
+    """shop_products result: one row per shopping-list line."""
+    items: list[ShopRow]
 
 
 # --- Nutrition ---

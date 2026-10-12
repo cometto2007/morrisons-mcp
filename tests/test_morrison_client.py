@@ -147,3 +147,51 @@ async def test_label_icons_survive_untrusted_shapes(client, icons):
     client.session.request = AsyncMock(return_value=_resp(200, _with_fields("Tomato", icons)))
     d = await client.get_product_detail("100162517")
     assert d.label_icons == (["Vegan"] if isinstance(icons, list) else [])
+
+
+# The BOP payload's `product` has the search result's shape (field names from a live
+# response, 2026-10-12), so get_product returns what shop_products needs for the trolley.
+BOP_CHICKEN = {
+    "product": {
+        "productId": "7ae952e7-ab87-41fb-a77a-92776a9fef3a",
+        "retailerProductId": "108444543",
+        "name": "Morrisons British Whole Chicken Medium 1.45kg",
+        "brand": "Morrisons",
+        "packSizeDescription": "1.45kg",
+        "price": {"amount": "5.50", "currency": "GBP"},
+        "unitPrice": {"price": {"amount": "3.79", "currency": "GBP"}, "unit": "fop.price.per.kg", "unitName": "PER_1KG"},
+        "image": {"src": "https://groceries.morrisons.com/images-v3/a/b/300x300.jpg"},
+        "available": True,
+        "promotions": None,
+    },
+    "bopData": {"fields": []},
+    "bopPromotions": [{"longDescription": "Now £4.25, Was £5.50"}],
+}
+
+
+async def test_get_product_reads_the_bop_product_like_a_search_result(client):
+    client.session.request = AsyncMock(return_value=_resp(200, BOP_CHICKEN))
+    p = await client.get_product("108444543")
+    assert p.product_id == "7ae952e7-ab87-41fb-a77a-92776a9fef3a"
+    assert (p.price, p.unit_price, p.pack_size) == (5.5, "£3.79/kg", "1.45kg")
+    assert p.image_url.endswith("300x300.jpg") and p.available is True
+    assert [x.description for x in p.promotions] == ["Now £4.25, Was £5.50"]  # null list, offers beside it
+    assert await _cached_keys(client.cache) == ["product:108444543"]
+    assert (await client.get_product("108444543")) == p
+    assert client.session.request.await_count == 1  # second read came from the cache
+
+
+async def test_get_product_gone_is_not_found_and_not_cached(client):
+    client.session.request = AsyncMock(return_value=_resp(404, BOP_404))
+    with pytest.raises(ProductNotFoundError):
+        await client.get_product("999999999999")
+    assert await _cached_keys(client.cache) == []
+
+
+def test_unit_price_in_pence_reads_as_pence():
+    from morrisons_mcp.morrison_client import _parse_unit_price
+
+    each = {"price": {"amount": "45.8", "currency": "GBX"}, "unit": "fop.price.per.each", "unitName": "EACH"}
+    kg = {"price": {"amount": "7.00", "currency": "GBP"}, "unit": "fop.price.per.kg", "unitName": "PER_1KG"}
+    assert _parse_unit_price(each) == "45.8p/each"  # eggs at £2.75 for 6, not £45.80 each
+    assert _parse_unit_price(kg) == "£7.00/kg"

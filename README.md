@@ -12,6 +12,7 @@ A self-hosted MCP (Model Context Protocol) server that scrapes Morrisons grocery
 | `get_product_detail` | Full product detail: per-100 g/ml nutrition from the label, the ingredient list with its bold allergens, raw and parsed pack size, price, origin, storage. Returns `found: false` for a gone product. |
 | `cost_recipe` | Cost a recipe from a list of ingredient strings. Returns total cost + per-ingredient breakdown. |
 | `pick_products` | Product cards per ingredient (photo, name, size, price) rendered in the chat as an [MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart); the user taps the product they buy and Submit posts the picks back as their message. Clients without MCP Apps get the same candidates as data. |
+| `shop_products` | A shopping list as product cards (MCP App): each line's Usual products first and pre-ticked, alternatives sortable by price or unit price, packs and a running total. **Add to trolley** opens Morrisons, where the [trolley userscript](#trolley-userscript) adds the picks to the user's own trolley. The server never touches an account. |
 
 ### `get_product_detail` response
 
@@ -36,6 +37,51 @@ Morrisons' product payload carries no GTIN/EAN, so none is returned.
 ### `pick_products` and the picker UI
 
 `pick_products(ingredients, max_results=8)` takes food names without quantities (at most 15; 1–12 candidates each) and returns `{ ingredients: [{ ingredient, query, results: [ProductResult] }] }`. Every `ProductResult` carries `url` (`https://groceries.morrisons.com/products/<retailerProductId>`, which Morrisons redirects to the slug URL). The tool declares `_meta.ui.resourceUri = ui://morrisons/picker`; that resource is the picker page (`picker_html.py`, MIME `text/html;profile=mcp-app`). It loads the MCP Apps browser client from unpkg and product images from groceries.morrisons.com, both declared in its CSP. Submit calls `sendMessage` with one line per ingredient: `- <ingredient> → <name> (id <retailerProductId>, <url>)`, or `none of these` / `not chosen`. A failed search gives that ingredient an empty `results` list rather than failing the call.
+
+### `shop_products` and the shopping list UI
+
+`shop_products(items, max_results=6)` takes up to 40 shopping-list lines. Each line is `{ name, links, quantity, amount }`: `name` is searched for alternatives; `links` are the line's Usual products as Morrisons product URLs (slug or not) or bare retailerProductIds, Main product first; other shops' links are ignored. A line needs a name or a link; with links only, the Main product's name drives the search. `quantity` (1–99, default 1) is the packs to buy and `amount` (e.g. `"1.2 kg"`) is shown as a hint.
+
+It returns `{ items: [{ name, query, quantity, amount, usual_ids, gone_usual_ids, results }] }`. `results` holds the Usual products first, in link order, then up to `max_results` (0–12) alternatives. A Usual product found in the search results is taken from there; otherwise it is looked up by id (`MorrisonClient.get_product`). `gone_usual_ids` lists the ones Morrisons no longer sells. Lines are searched concurrently, still one Morrisons request per 0.5 s. A failed search or lookup thins that line instead of failing the call.
+
+The view (`shop_html.py`, `ui://morrisons/shop`):
+
+- pre-ticks each line's first Usual product Morrisons can supply; a line without one starts skipped;
+- sorts the alternatives by best match, price, or unit price (£/kg, £/litre, pence each), with the Usual products always first;
+- has a pack stepper per line and a running total (shelf prices, so `≈`; Morrisons applies offers in the trolley).
+
+**Add to trolley** calls `openLink` with:
+
+```
+https://groceries.morrisons.com/#add-to-trolley=<total>;<productId>:<packs>,<productId>:<packs>,...
+```
+
+`productId` is the product's UUID (what Morrisons' trolley takes), not the numeric retailerProductId. The fragment never reaches Morrisons' server. The view also shows the link to copy, for when the host can't open it or opens it somewhere the userscript doesn't run.
+
+### Trolley userscript
+
+`userscript/morrisons-trolley.user.js` runs on groceries.morrisons.com. When a page opens with `#add-to-trolley=…`, it:
+
+1. clears the fragment, so a reload can't add twice;
+2. reads the page's session state (CSRF token, logged in or not) from a fresh copy of the home page;
+3. asks *"Add N products (≈ £T) to your Morrisons trolley?"*;
+4. POSTs `/api/cart/v1/carts/active/apply-quantity` with `[{productId, quantity}]`, first-party with the user's own cookies;
+5. opens `/basket`.
+
+How it behaves:
+
+- **Packs are added, not set.** Morrisons' own remove button sends negative quantities to the same endpoint. So the script remembers each link it has added and flags a second use in the confirm.
+- **Logged out:** the list is kept for 30 minutes and added after the user logs in, with one prompt rather than one per login page.
+- **Rejected:** a damaged link adds nothing, and a refused update (any HTTP error) adds nothing and isn't remembered.
+
+Install it once:
+
+- **iPhone/iPad:** the free [Userscripts](https://apps.apple.com/app/userscripts/id1463298887) app. Turn it on in Settings → Safari → Extensions and allow it on groceries.morrisons.com. Then open the raw script URL below in Safari and install it from the extension's menu. Log into Morrisons in Safari. iOS Chrome can't run extensions.
+- **Desktop:** [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey; open the raw URL and install.
+
+Raw URL (managers use it for updates too): `https://raw.githubusercontent.com/cometto2007/morrisons-mcp/main/userscript/morrisons-trolley.user.js`
+
+The Morrisons iPhone app claims groceries.morrisons.com links (`/`, `/basket`, `/products/*`…), so with the app installed, links open there and the userscript never runs. This flow assumes the app isn't installed.
 
 ---
 
@@ -145,6 +191,7 @@ The server caches API responses in SQLite to reduce load on the Morrisons websit
 |------------|-----|-----------|
 | Search results | 1 hour (3600s) | `search:{normalised_query}` |
 | Product BOP/nutrition | 24 hours (86400s) | `bop_v4:{retailerProductId}` (found products only) |
+| One product by id (`shop_products` Usual products) | 1 hour (3600s) | `product:{retailerProductId}` (found products only) |
 
 The SQLite database is stored at `/data/cache.db`, backed by a Docker named volume (`morrisons_data`) for persistence across container restarts.
 
@@ -161,20 +208,28 @@ pytest tests/ -v
 
 # Optional live check against the real Morrisons API (3 requests)
 MORRISONS_LIVE=1 pytest tests/test_live_morrisons.py
+
+# Browser tests of the shopping list view and the trolley userscript, in headless
+# Chromium against stand-ins for Morrisons and unpkg (skipped without Playwright)
+pip install -e ".[dev,browser]" && playwright install --only-shell chromium
+pytest tests/test_shop_browser.py
 ```
 
 ### Project Structure
 
 ```
 src/morrisons_mcp/
-├── server.py            # FastMCP app + 4 tool definitions
+├── server.py            # FastMCP app + 5 tool definitions
 ├── morrison_client.py   # Morrisons search + BOP API client
 ├── session_manager.py   # Cookie/session acquisition + refresh
 ├── cache.py             # SQLite async cache (aiosqlite)
 ├── ingredient_parser.py # "500g chicken breast" → ParsedIngredient
 ├── fuzzy_matcher.py     # Match ingredients to products (rapidfuzz)
 ├── picker_html.py       # The pick_products MCP App page (ui://morrisons/picker)
+├── shop_html.py         # The shop_products MCP App page (ui://morrisons/shop)
 ├── mealie_client.py     # Optional Mealie pantry-staple check (cost_recipe)
 ├── nutrition_parser.py  # Per-100 g/ml label parsing + net quantity
 └── models.py            # All Pydantic data models
+userscript/
+└── morrisons-trolley.user.js  # Adds shop_products picks to the user's Morrisons trolley
 ```
